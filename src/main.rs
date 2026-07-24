@@ -40,6 +40,9 @@ enum Commands {
         output_dir: String,
         #[arg(short = 't', long, default_value = "models/tokenizer.json")]
         tokenizer: String,
+        /// Auto-detect hardware and optimize training params
+        #[arg(long)]
+        auto_tune: bool,
     },
     /// Preprocess text data for training
     Preprocess {
@@ -92,6 +95,48 @@ enum Commands {
         #[arg(long, default_value = "models/tokenizer.json")]
         tokenizer: String,
     },
+    /// Stream from AT Protocol Jetstream and train
+    JetstreamTrain {
+        /// Jetstream host (default: jetstream2.us-east.bsky.network)
+        #[arg(long, default_value = "jetstream2.us-east.bsky.network")]
+        jetstream_host: String,
+        /// Collections to subscribe to (e.g., app.bsky.feed.post)
+        #[arg(short = 'c', long, default_value = "app.bsky.feed.post")]
+        collections: Vec<String>,
+        /// DIDs to filter (empty = all users)
+        #[arg(short = 'd', long)]
+        dids: Vec<String>,
+        /// Maximum number of samples to collect
+        #[arg(short = 'n', long, default_value = "10000")]
+        max_samples: usize,
+        /// Maximum collection time in seconds
+        #[arg(long, default_value = "3600")]
+        max_duration_secs: u64,
+        /// Output directory for model and data
+        #[arg(short = 'o', long)]
+        output_dir: String,
+        /// Model name
+        #[arg(short = 'm', long, default_value = "gpt2")]
+        model_name: String,
+        /// Learning rate
+        #[arg(short = 'l', long, default_value = "0.0005")]
+        lr: f64,
+        /// Number of epochs
+        #[arg(short = 'e', long, default_value = "3")]
+        epochs: usize,
+        /// Batch size
+        #[arg(short = 'b', long, default_value = "4")]
+        batch_size: usize,
+        /// Gradient accumulation steps
+        #[arg(short = 'g', long, default_value = "8")]
+        grad_accum: usize,
+        /// Tokenizer path
+        #[arg(long, default_value = "models/tokenizer.json")]
+        tokenizer: String,
+        /// Auto-detect hardware and optimize training params
+        #[arg(long)]
+        auto_tune: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -110,13 +155,15 @@ fn main() -> Result<()> {
             grad_accum,
             output_dir,
             tokenizer,
+            auto_tune,
         } => {
             info!(
                 "Starting training: model={}, data={}, lr={}, epochs={}",
                 model, data, lr, epochs
             );
 
-            let train_config = TrainingConfig {
+            // Apply auto-tuning if requested
+            let mut final_config = TrainingConfig {
                 model_name: model.clone(),
                 data_path: data.clone(),
                 output_dir: output_dir.clone(),
@@ -135,11 +182,26 @@ fn main() -> Result<()> {
                 load_check_interval: 10,
             };
 
+            if auto_tune {
+                let profile = utils::HardwareProfile::detect();
+                let tuned = utils::AutoTuner::recommend(&profile);
+                info!("Auto-tune: {:?}", tuned);
+
+                final_config.batch_size = tuned.batch_size;
+                final_config.gradient_accumulation_steps = tuned.gradient_accumulation_steps;
+                final_config.precision = tuned.precision;
+                final_config.max_seq_len = tuned.max_seq_len;
+                final_config.learning_rate = tuned.learning_rate;
+                final_config.warmup_steps = tuned.warmup_steps;
+                final_config.weight_decay = tuned.weight_decay;
+                final_config.max_grad_norm = tuned.max_grad_norm;
+            }
+
             std::fs::create_dir_all(&output_dir)?;
 
             // Save training config
             let config_path = format!("{}/config.json", output_dir);
-            std::fs::write(&config_path, serde_json::to_string_pretty(&train_config)?)?;
+            std::fs::write(&config_path, serde_json::to_string_pretty(&final_config)?)?;
             info!("Saved training config to {}", config_path);
 
             // Load tokenizer
@@ -147,7 +209,7 @@ fn main() -> Result<()> {
             info!("Loaded tokenizer from {}", tokenizer);
 
             // Load dataset
-            let dataset = Dataset::from_jsonl(&data, tok, train_config.max_seq_len)?;
+            let dataset = Dataset::from_jsonl(&data, tok, final_config.max_seq_len)?;
             info!("Loaded {} samples from {}", dataset.len(), data);
 
             // Validate dataset
@@ -155,7 +217,7 @@ fn main() -> Result<()> {
 
             // Build and train model
             let model_config = ModelConfig::default();
-            let mut trainer = Trainer::new(train_config, model_config)?;
+            let mut trainer = Trainer::new(final_config, model_config)?;
             info!("Trainer initialised on {:?}", trainer.device);
 
             let losses = trainer.train(&dataset)?;
@@ -297,7 +359,7 @@ fn main() -> Result<()> {
             info!("Saved {} samples to {}", dataset.len(), data_path);
 
             // Train on the loaded data
-            let train_config = TrainingConfig {
+            let mut final_at_config = TrainingConfig {
                 model_name: model_name.clone(),
                 data_path: data_path,
                 output_dir: output_dir.clone(),
@@ -316,12 +378,125 @@ fn main() -> Result<()> {
                 load_check_interval: 10,
             };
 
+            // Auto-tune for AT Protocol training too
+            let profile = utils::HardwareProfile::detect();
+            let tuned = utils::AutoTuner::recommend(&profile);
+            final_at_config.batch_size = tuned.batch_size;
+            final_at_config.gradient_accumulation_steps = tuned.gradient_accumulation_steps;
+            final_at_config.precision = tuned.precision;
+            final_at_config.max_seq_len = tuned.max_seq_len;
+
             let model_config = ModelConfig::default();
-            let mut trainer = Trainer::new(train_config, model_config)?;
+            let mut trainer = Trainer::new(final_at_config, model_config)?;
             info!("Trainer initialised on {:?}", trainer.device);
 
             let losses = trainer.train(&dataset)?;
             info!("AT Protocol training complete. Losses: {:?}", losses);
+        }
+        Commands::JetstreamTrain {
+            jetstream_host,
+            collections,
+            dids,
+            max_samples,
+            max_duration_secs,
+            output_dir,
+            model_name,
+            lr,
+            epochs,
+            batch_size,
+            grad_accum,
+            tokenizer,
+            auto_tune,
+        } => {
+            info!(
+                "Starting Jetstream training: host={}, collections={:?}, max_samples={}",
+                jetstream_host, collections, max_samples
+            );
+
+            let tok = load_tokenizer(&tokenizer)?;
+
+            // Build Jetstream config
+            let jetstream_config = experai::jetstream::JetstreamConfig {
+                host: jetstream_host.clone(),
+                collections: collections.clone(),
+                dids: dids.clone(),
+                max_samples,
+                batch_size: 100,
+                max_duration_secs,
+                compression: true,
+            };
+
+            // Collect data from Jetstream
+            let rt = tokio::runtime::Runtime::new()?;
+            let (dataset, stats) = rt.block_on(experai::jetstream::collect_from_jetstream(
+                &jetstream_config,
+                tok,
+            ))?;
+
+            info!(
+                "Collected {} posts from Jetstream ({:.1}s, {:.1} posts/s)",
+                stats.valid_posts, stats.duration_secs, stats.posts_per_second
+            );
+
+            // Save collected data
+            std::fs::create_dir_all(&output_dir)?;
+            let data_path = format!("{}/jetstream_data.jsonl", output_dir);
+            let mut file = std::fs::File::create(&data_path)?;
+            for sample in &dataset.samples {
+                use std::io::Write;
+                let json = serde_json::to_string(&serde_json::json!({
+                    "text": sample.text,
+                    "label": sample.label,
+                }))?;
+                writeln!(file, "{}", json)?;
+            }
+            info!("Saved {} samples to {}", dataset.len(), data_path);
+
+            // Build training config
+            let mut final_config = TrainingConfig {
+                model_name: model_name.clone(),
+                data_path: data_path.clone(),
+                output_dir: output_dir.clone(),
+                epochs,
+                learning_rate: lr,
+                batch_size,
+                gradient_accumulation_steps: grad_accum,
+                max_seq_len: 512,
+                precision: "bf16".to_string(),
+                warmup_steps: 500,
+                weight_decay: 0.01,
+                max_grad_norm: 1.0,
+                seed: 42,
+            };
+
+            // Apply auto-tuning if requested
+            if auto_tune {
+                let profile = utils::HardwareProfile::detect();
+                let tuned = utils::AutoTuner::recommend(&profile);
+                info!("Auto-tune: {:?}", tuned);
+
+                final_config.batch_size = tuned.batch_size;
+                final_config.gradient_accumulation_steps = tuned.gradient_accumulation_steps;
+                final_config.precision = tuned.precision;
+                final_config.max_seq_len = tuned.max_seq_len;
+                final_config.learning_rate = tuned.learning_rate;
+                final_config.warmup_steps = tuned.warmup_steps;
+                final_config.weight_decay = tuned.weight_decay;
+                final_config.max_grad_norm = tuned.max_grad_norm;
+            }
+
+            // Save training config
+            let config_path = format!("{}/config.json", output_dir);
+            std::fs::write(&config_path, serde_json::to_string_pretty(&final_config)?)?;
+            info!("Saved training config to {}", config_path);
+
+            // Train
+            let model_config = ModelConfig::default();
+            let mut trainer = Trainer::new(final_config, model_config)?;
+            info!("Trainer initialised on {:?}", trainer.device);
+
+            let losses = trainer.train(&dataset)?;
+            info!("Jetstream training complete. Losses: {:?}", losses);
         }
     }
 

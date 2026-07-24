@@ -202,4 +202,109 @@ mod tests {
         assert_eq!(p.clean_text("tabs\tand\nnewlines"), "tabs and newlines");
         assert_eq!(p.clean_text("one"), "one");
     }
+
+    // Auto-tune tests
+
+    #[test]
+    fn test_hardware_profile_detect() {
+        let profile = crate::utils::HardwareProfile::detect();
+        assert!(!profile.device_name.is_empty());
+        assert!(profile.cpu_cores > 0);
+        assert!(profile.ram_mb > 0);
+    }
+
+    #[test]
+    fn test_auto_tuner_batch_strategy() {
+        let profile_24g = crate::utils::HardwareProfile {
+            device: crate::utils::ComputeDevice::Cpu,
+            device_name: "CPU".to_string(),
+            vram_mb: Some(24000),
+            ram_mb: 32768,
+            cpu_cores: 8,
+            supports_bf16: true,
+            supports_fp16: true,
+        };
+        let params_24g = crate::utils::AutoTuner::recommend(&profile_24g);
+        assert_eq!(params_24g.batch_size, 32);
+
+        let profile_8g = crate::utils::HardwareProfile {
+            device: crate::utils::ComputeDevice::Cpu,
+            device_name: "CPU".to_string(),
+            vram_mb: Some(8000),
+            ram_mb: 16384,
+            cpu_cores: 4,
+            supports_bf16: true,
+            supports_fp16: true,
+        };
+        let params_8g = crate::utils::AutoTuner::recommend(&profile_8g);
+        assert_eq!(params_8g.batch_size, 4);
+    }
+
+    #[test]
+    fn test_auto_tuner_seq_len_strategy() {
+        // Test sequence length selection
+        let profile_large = crate::utils::HardwareProfile {
+            device: crate::utils::ComputeDevice::Cpu,
+            device_name: "CPU".to_string(),
+            vram_mb: Some(16000),
+            ram_mb: 32768,
+            cpu_cores: 8,
+            supports_bf16: true,
+            supports_fp16: true,
+        };
+        let params = crate::utils::AutoTuner::recommend(&profile_large);
+        assert_eq!(params.max_seq_len, 2048);
+
+        let profile_small = crate::utils::HardwareProfile {
+            device: crate::utils::ComputeDevice::Cpu,
+            device_name: "CPU".to_string(),
+            vram_mb: Some(4000),
+            ram_mb: 8192,
+            cpu_cores: 2,
+            supports_bf16: false,
+            supports_fp16: false,
+        };
+        let params = crate::utils::AutoTuner::recommend(&profile_small);
+        assert_eq!(params.max_seq_len, 512);
+        assert_eq!(params.precision, "f32");
+    }
+
+    #[test]
+    fn test_auto_tuner_precision_selection() {
+        let bf16_profile = crate::utils::HardwareProfile {
+            device: crate::utils::ComputeDevice::Cpu,
+            device_name: "CPU".to_string(),
+            vram_mb: Some(16000),
+            ram_mb: 32768,
+            cpu_cores: 8,
+            supports_bf16: true,
+            supports_fp16: false,
+        };
+        let params = crate::utils::AutoTuner::recommend(&bf16_profile);
+        assert_eq!(params.precision, "bf16");
+
+        let fp16_profile = crate::utils::HardwareProfile {
+            device: crate::utils::ComputeDevice::Cpu,
+            device_name: "CPU".to_string(),
+            vram_mb: Some(16000),
+            ram_mb: 32768,
+            cpu_cores: 8,
+            supports_bf16: false,
+            supports_fp16: true,
+        };
+        let params = crate::utils::AutoTuner::recommend(&fp16_profile);
+        assert_eq!(params.precision, "fp16");
+
+        let f32_profile = crate::utils::HardwareProfile {
+            device: crate::utils::ComputeDevice::Cpu,
+            device_name: "CPU".to_string(),
+            vram_mb: Some(16000),
+            ram_mb: 32768,
+            cpu_cores: 8,
+            supports_bf16: false,
+            supports_fp16: false,
+        };
+        let params = crate::utils::AutoTuner::recommend(&f32_profile);
+        assert_eq!(params.precision, "f32");
+    }
 }
