@@ -1,10 +1,10 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use atrium_api::client::AtpServiceClient;
 use atrium_api::com::atproto::identity::resolve_handle::ParametersData as ResolveParams;
 use atrium_api::com::atproto::repo::list_records::ParametersData as ListRecordsParams;
 use atrium_api::types::string::Handle;
 use serde::{Deserialize, Serialize};
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ATProtocolConfig {
@@ -50,10 +50,13 @@ impl ATProtocolClient {
             .com
             .atproto
             .identity
-            .resolve_handle(ResolveParams {
-                handle: Handle::new(handle.to_string())
-                    .map_err(|e| anyhow!("Invalid handle '{}': {}", handle, e))?,
-            }.into())
+            .resolve_handle(
+                ResolveParams {
+                    handle: Handle::new(handle.to_string())
+                        .map_err(|e| anyhow!("Invalid handle '{}': {}", handle, e))?,
+                }
+                .into(),
+            )
             .await
             .map_err(|e| anyhow!("Failed to resolve handle '{}': {}", handle, e))?;
 
@@ -68,11 +71,15 @@ impl ATProtocolClient {
         cursor: Option<String>,
     ) -> Result<Vec<(String, String, serde_json::Value)>> {
         let params = ListRecordsParams {
-            collection: collection.parse().map_err(|e| anyhow!("Invalid collection NSID: {}", e))?,
-            repo: repo.parse().map_err(|e| anyhow!("Invalid repo identifier: {}", e))?,
-            limit: limit.map(|l| {
-                l.try_into().map_err(|_| anyhow!("Invalid limit: {}", l))
-            }).transpose()?,
+            collection: collection
+                .parse()
+                .map_err(|e| anyhow!("Invalid collection NSID: {}", e))?,
+            repo: repo
+                .parse()
+                .map_err(|e| anyhow!("Invalid repo identifier: {}", e))?,
+            limit: limit
+                .map(|l| l.try_into().map_err(|_| anyhow!("Invalid limit: {}", l)))
+                .transpose()?,
             cursor,
             reverse: None,
         };
@@ -89,8 +96,7 @@ impl ATProtocolClient {
 
         let mut records = Vec::new();
         for record in response.data.records {
-            let value = serde_json::to_value(&record.data.value)
-                .unwrap_or(serde_json::Value::Null);
+            let value = serde_json::to_value(&record.data.value).unwrap_or(serde_json::Value::Null);
             let cid = serde_json::to_value(&record.data.cid)
                 .unwrap_or(serde_json::Value::Null)
                 .as_str()
@@ -117,12 +123,24 @@ impl ATProtocolClient {
                 break;
             }
 
-            debug!("Fetching records (batch of {}, total so far: {})", batch_size, all_records.len());
+            debug!(
+                "Fetching records (batch of {}, total so far: {})",
+                batch_size,
+                all_records.len()
+            );
 
             let params = ListRecordsParams {
-                collection: collection.parse().map_err(|e| anyhow!("Invalid collection NSID: {}", e))?,
-                repo: repo.parse().map_err(|e| anyhow!("Invalid repo identifier: {}", e))?,
-                limit: Some(batch_size.try_into().map_err(|_| anyhow!("Invalid limit"))?),
+                collection: collection
+                    .parse()
+                    .map_err(|e| anyhow!("Invalid collection NSID: {}", e))?,
+                repo: repo
+                    .parse()
+                    .map_err(|e| anyhow!("Invalid repo identifier: {}", e))?,
+                limit: Some(
+                    batch_size
+                        .try_into()
+                        .map_err(|_| anyhow!("Invalid limit"))?,
+                ),
                 cursor: cursor.clone(),
                 reverse: None,
             };
@@ -139,8 +157,8 @@ impl ATProtocolClient {
 
             let batch_len = response.data.records.len();
             for record in response.data.records {
-                let value = serde_json::to_value(&record.data.value)
-                    .unwrap_or(serde_json::Value::Null);
+                let value =
+                    serde_json::to_value(&record.data.value).unwrap_or(serde_json::Value::Null);
                 let cid = serde_json::to_value(&record.data.cid)
                     .unwrap_or(serde_json::Value::Null)
                     .as_str()
@@ -189,7 +207,8 @@ impl ATProtocolDataset {
 
         for (uri, cid, value) in records.into_iter().take(self.config.max_samples) {
             if let Some(text) = extract_text_from_value(&value) {
-                let created_at = value.get("createdAt")
+                let created_at = value
+                    .get("createdAt")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
@@ -231,9 +250,7 @@ pub fn extract_text_from_value(value: &serde_json::Value) -> Option<String> {
     None
 }
 
-pub async fn load_at_protocol_dataset(
-    config: ATProtocolConfig,
-) -> Result<Vec<ATProtocolSample>> {
+pub async fn load_at_protocol_dataset(config: ATProtocolConfig) -> Result<Vec<ATProtocolSample>> {
     let mut dataset = ATProtocolDataset::new(config);
     dataset.load_from_at_protocol().await?;
     Ok(dataset.samples)

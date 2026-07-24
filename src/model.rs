@@ -69,7 +69,8 @@ struct Mlp {
 }
 
 pub fn build_model(config: &ModelConfig, vb: VarBuilder) -> Result<TransformerModel> {
-    let embedding = candle_nn::embedding(config.vocab_size, config.hidden_size, vb.pp("embedding"))?;
+    let embedding =
+        candle_nn::embedding(config.vocab_size, config.hidden_size, vb.pp("embedding"))?;
 
     let mut layers = Vec::with_capacity(config.num_layers);
     for i in 0..config.num_layers {
@@ -96,8 +97,16 @@ impl TransformerLayer {
         let head_dim = config.hidden_size / config.num_heads;
         let self_attn = MultiHeadAttention::new(config, head_dim, vb.pp("self_attn"))?;
         let mlp = Mlp::new(config, vb.pp("mlp"))?;
-        let input_layernorm = candle_nn::rms_norm(config.hidden_size, config.layer_norm_eps, vb.pp("input_layernorm"))?;
-        let post_attention_layernorm = candle_nn::rms_norm(config.hidden_size, config.layer_norm_eps, vb.pp("post_attention_layernorm"))?;
+        let input_layernorm = candle_nn::rms_norm(
+            config.hidden_size,
+            config.layer_norm_eps,
+            vb.pp("input_layernorm"),
+        )?;
+        let post_attention_layernorm = candle_nn::rms_norm(
+            config.hidden_size,
+            config.layer_norm_eps,
+            vb.pp("post_attention_layernorm"),
+        )?;
 
         Ok(Self {
             self_attn,
@@ -146,11 +155,14 @@ impl MultiHeadAttention {
         let v = self.v_proj.forward(x)?;
 
         // Reshape to (batch, heads, seq, head_dim)
-        let q = q.reshape((batch_size, seq_len, self.num_heads, self.head_dim))?
+        let q = q
+            .reshape((batch_size, seq_len, self.num_heads, self.head_dim))?
             .transpose(1, 2)?;
-        let k = k.reshape((batch_size, seq_len, self.num_heads, self.head_dim))?
+        let k = k
+            .reshape((batch_size, seq_len, self.num_heads, self.head_dim))?
             .transpose(1, 2)?;
-        let v = v.reshape((batch_size, seq_len, self.num_heads, self.head_dim))?
+        let v = v
+            .reshape((batch_size, seq_len, self.num_heads, self.head_dim))?
             .transpose(1, 2)?;
 
         // Scaled dot-product attention
@@ -159,13 +171,18 @@ impl MultiHeadAttention {
 
         // Causal mask
         let mask = causal_mask(seq_len, x.device())?;
-        let scores = (q.contiguous()?.matmul(&k_t.contiguous()?)?.broadcast_add(&mask)? * scale)?;
+        let scores = (q
+            .contiguous()?
+            .matmul(&k_t.contiguous()?)?
+            .broadcast_add(&mask)?
+            * scale)?;
 
         let attn = candle_nn::ops::softmax(&scores, 3)?;
         let out = attn.matmul(&v.contiguous()?)?;
 
         // Reshape back to (batch, seq, hidden)
-        let out = out.transpose(1, 2)?
+        let out = out
+            .transpose(1, 2)?
             .reshape((batch_size, seq_len, hidden_size))?;
 
         let out = self.o_proj.forward(&out)?;
@@ -176,9 +193,7 @@ impl MultiHeadAttention {
 pub(crate) fn causal_mask(seq_len: usize, device: &Device) -> candle_core::Result<Tensor> {
     // Create an upper triangular mask of -inf
     let mask_vals: Vec<f32> = (0..seq_len)
-        .flat_map(|i| {
-            (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 })
-        })
+        .flat_map(|i| (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 }))
         .collect();
     let mask = Tensor::from_slice(&mask_vals, (seq_len, seq_len), device)?
         .unsqueeze(0)?
@@ -188,9 +203,21 @@ pub(crate) fn causal_mask(seq_len: usize, device: &Device) -> candle_core::Resul
 
 impl Mlp {
     fn new(config: &ModelConfig, vb: VarBuilder) -> Result<Self> {
-        let gate_proj = linear_no_bias(config.hidden_size, config.intermediate_size, vb.pp("gate_proj"))?;
-        let up_proj = linear_no_bias(config.hidden_size, config.intermediate_size, vb.pp("up_proj"))?;
-        let down_proj = linear_no_bias(config.intermediate_size, config.hidden_size, vb.pp("down_proj"))?;
+        let gate_proj = linear_no_bias(
+            config.hidden_size,
+            config.intermediate_size,
+            vb.pp("gate_proj"),
+        )?;
+        let up_proj = linear_no_bias(
+            config.hidden_size,
+            config.intermediate_size,
+            vb.pp("up_proj"),
+        )?;
+        let down_proj = linear_no_bias(
+            config.intermediate_size,
+            config.hidden_size,
+            vb.pp("down_proj"),
+        )?;
 
         Ok(Self {
             gate_proj,

@@ -3,7 +3,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use tokenizers::{Tokenizer, Encoding};
+use tokenizers::{Encoding, Tokenizer};
 use tracing::{event, Level};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +62,8 @@ impl Preprocessor {
         }
 
         if self.config.remove_emails {
-            let email_regex = Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap();
+            let email_regex =
+                Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap();
             cleaned = email_regex.replace_all(&cleaned, "[EMAIL]").to_string();
         }
 
@@ -87,17 +88,30 @@ impl Preprocessor {
             if let Some(text_val) = record.get("text") {
                 if let Some(text_str) = text_val.as_str() {
                     let cleaned = self.clean_text(text_str);
-                    let tokens = self.tokenizer.encode(cleaned.as_str(), true)
+                    let tokens = self
+                        .tokenizer
+                        .encode(cleaned.as_str(), true)
                         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
                     if tokens.get_ids().len() >= self.config.min_length {
                         record["text"] = serde_json::Value::String(cleaned);
                         record["tokens"] = serde_json::Value::Array(
-                            tokens.get_ids().iter().map(|&id| serde_json::Value::Number(id.into())).collect()
+                            tokens
+                                .get_ids()
+                                .iter()
+                                .map(|&id| serde_json::Value::Number(id.into()))
+                                .collect(),
                         );
-                        output_file.write_all((serde_json::to_string(&record)? + "\n").as_bytes())?;
+                        output_file
+                            .write_all((serde_json::to_string(&record)? + "\n").as_bytes())?;
                     } else {
-                        event!(Level::DEBUG, "Filtered sample {}: too short ({} < {})", idx, tokens.get_ids().len(), self.config.min_length);
+                        event!(
+                            Level::DEBUG,
+                            "Filtered sample {}: too short ({} < {})",
+                            idx,
+                            tokens.get_ids().len(),
+                            self.config.min_length
+                        );
                     }
                 }
             }
@@ -108,10 +122,12 @@ impl Preprocessor {
 
     pub fn tokenize_batch(&self, texts: &[String]) -> Result<Vec<Encoding>> {
         let mut encodings = Vec::with_capacity(texts.len());
-        
+
         for text in texts {
             let cleaned = self.clean_text(text);
-            let encoding = self.tokenizer.encode(cleaned.as_str(), true)
+            let encoding = self
+                .tokenizer
+                .encode(cleaned.as_str(), true)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             encodings.push(encoding);
         }

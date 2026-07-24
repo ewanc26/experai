@@ -1,6 +1,7 @@
 use anyhow::Result;
 use candle_core::Tensor;
 use rand::SeedableRng;
+use sysinfo::{CpuRefreshKind, RefreshKind, System};
 use tracing::{event, Level};
 
 /// Device selection for compute. Maps to candle_core::Device.
@@ -30,7 +31,9 @@ impl ComputeDevice {
                 }
                 #[cfg(not(feature = "metal"))]
                 {
-                    Err(anyhow::anyhow!("Metal support not compiled in. Rebuild with --features metal"))
+                    Err(anyhow::anyhow!(
+                        "Metal support not compiled in. Rebuild with --features metal"
+                    ))
                 }
             }
             ComputeDevice::Cuda(idx) => {
@@ -41,7 +44,9 @@ impl ComputeDevice {
                 #[cfg(not(feature = "cuda"))]
                 {
                     let _ = idx;
-                    Err(anyhow::anyhow!("CUDA support not compiled in. Rebuild with --features cuda"))
+                    Err(anyhow::anyhow!(
+                        "CUDA support not compiled in. Rebuild with --features cuda"
+                    ))
                 }
             }
         }
@@ -87,8 +92,17 @@ pub fn check_tensor_shapes(tensors: &[Tensor], expected_shapes: &[Vec<usize>]) -
     for (tensor, expected_shape) in tensors.iter().zip(expected_shapes.iter()) {
         let shape = tensor.shape().dims().to_vec();
         if shape != *expected_shape {
-            event!(Level::ERROR, "Shape mismatch: expected {:?}, got {:?}", expected_shape, shape);
-            return Err(anyhow::anyhow!("Shape mismatch: expected {:?}, got {:?}", expected_shape, shape));
+            event!(
+                Level::ERROR,
+                "Shape mismatch: expected {:?}, got {:?}",
+                expected_shape,
+                shape
+            );
+            return Err(anyhow::anyhow!(
+                "Shape mismatch: expected {:?}, got {:?}",
+                expected_shape,
+                shape
+            ));
         }
     }
     Ok(())
@@ -120,4 +134,64 @@ where
     T: PartialOrd + Copy,
 {
     value >= min && value <= max
+}
+
+#[derive(Debug, Clone)]
+pub struct SystemLoadConfig {
+    pub max_cpu_load: f32,
+    pub check_interval_batches: usize,
+    pub reduction_factor: f32,
+}
+
+impl Default for SystemLoadConfig {
+    fn default() -> Self {
+        Self {
+            max_cpu_load: 0.80,
+            check_interval_batches: 10,
+            reduction_factor: 0.5,
+        }
+    }
+}
+
+pub struct SystemLoadMonitor {
+    config: SystemLoadConfig,
+    system: System,
+}
+
+impl SystemLoadMonitor {
+    pub fn max_load(&self) -> f32 {
+        self.config.max_cpu_load
+    }
+    pub fn new(config: SystemLoadConfig) -> Self {
+        let mut system =
+            System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
+        system.refresh_cpu();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        system.refresh_cpu();
+        Self { config, system }
+    }
+
+    pub fn cpu_usage(&mut self) -> f32 {
+        self.system.refresh_cpu();
+        self.system.global_cpu_info().cpu_usage() / 100.0
+    }
+
+    pub fn is_overloaded(&mut self) -> bool {
+        self.cpu_usage() > self.config.max_cpu_load
+    }
+
+    pub fn current_load(&mut self) -> f32 {
+        self.cpu_usage()
+    }
+
+    pub fn recommended_batch_scale(&mut self) -> f32 {
+        let load = self.current_load();
+        if load > self.config.max_cpu_load {
+            self.config.reduction_factor
+        } else if load > self.config.max_cpu_load * 0.75 {
+            0.75
+        } else {
+            1.0
+        }
+    }
 }

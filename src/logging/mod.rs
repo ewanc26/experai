@@ -1,5 +1,5 @@
-use tracing_subscriber::{EnvFilter, fmt};
 use tracing_subscriber::prelude::*;
+use tracing_subscriber::{fmt, EnvFilter};
 
 pub fn init_logger(log_level: Option<String>, test_mode: bool) -> anyhow::Result<()> {
     let level = log_level.unwrap_or_else(|| "info".to_string());

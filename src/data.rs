@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use candle_core::Tensor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -7,7 +7,7 @@ use std::io::{BufRead, BufReader};
 use tokenizers::Tokenizer;
 use tracing::{info, warn};
 
-use crate::at_protocol::{ATProtocolClient, extract_text_from_value};
+use crate::at_protocol::{extract_text_from_value, ATProtocolClient};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetSample {
@@ -31,9 +31,12 @@ impl Dataset {
         for (idx, line) in reader.lines().enumerate() {
             let line = line?;
             let parsed: HashMap<String, String> = serde_json::from_str(&line)?;
-            let text = parsed.get("text").ok_or_else(|| anyhow!("Missing 'text' field in line {}", idx))?;
+            let text = parsed
+                .get("text")
+                .ok_or_else(|| anyhow!("Missing 'text' field in line {}", idx))?;
 
-            let tokens = tokenizer.encode(text.as_str(), true)
+            let tokens = tokenizer
+                .encode(text.as_str(), true)
                 .map_err(|e| anyhow!("Tokenization error: {}", e))?
                 .get_ids()
                 .iter()
@@ -41,7 +44,12 @@ impl Dataset {
                 .collect::<Vec<_>>();
 
             if tokens.len() > max_length {
-                warn!("Sample {} exceeds max length ({} > {})", idx, tokens.len(), max_length);
+                warn!(
+                    "Sample {} exceeds max length ({} > {})",
+                    idx,
+                    tokens.len(),
+                    max_length
+                );
             }
 
             samples.push(DatasetSample {
@@ -66,9 +74,12 @@ impl Dataset {
         let mut csv_reader = csv::Reader::from_reader(reader);
         for result in csv_reader.deserialize() {
             let record: HashMap<String, String> = result?;
-            let text = record.get("text").ok_or_else(|| anyhow!("Missing 'text' column"))?;
+            let text = record
+                .get("text")
+                .ok_or_else(|| anyhow!("Missing 'text' column"))?;
 
-            let tokens = tokenizer.encode(text.as_str(), true)
+            let tokens = tokenizer
+                .encode(text.as_str(), true)
                 .map_err(|e| anyhow!("Tokenization error: {}", e))?
                 .get_ids()
                 .iter()
@@ -101,7 +112,10 @@ impl Dataset {
         let client = ATProtocolClient::new(pds_url);
 
         let did = client.resolve_handle(handle).await?;
-        info!("Resolved DID: {} for handle: {} on PDS: {}", did, handle, pds_url);
+        info!(
+            "Resolved DID: {} for handle: {} on PDS: {}",
+            did, handle, pds_url
+        );
 
         let records = client
             .list_records_paginated(&did, "app.bsky.feed.post", max_samples)
@@ -126,7 +140,10 @@ impl Dataset {
             }
 
             if samples.len() >= max_samples {
-                warn!("Reached maximum sample limit ({}) from AT Protocol", max_samples);
+                warn!(
+                    "Reached maximum sample limit ({}) from AT Protocol",
+                    max_samples
+                );
                 break;
             }
         }
@@ -185,7 +202,8 @@ impl DataCollator {
 
     pub fn collate(&self, samples: &[DatasetSample]) -> Result<(Tensor, Tensor)> {
         let batch_size = samples.len();
-        let max_len = samples.iter()
+        let max_len = samples
+            .iter()
             .map(|s| s.tokens.len())
             .max()
             .unwrap_or(0)
@@ -209,8 +227,8 @@ impl DataCollator {
             }
         }
 
-        let input_tensor = Tensor::new(input_ids, &candle_core::Device::Cpu)?
-            .reshape((batch_size, max_len))?;
+        let input_tensor =
+            Tensor::new(input_ids, &candle_core::Device::Cpu)?.reshape((batch_size, max_len))?;
         let mask_tensor = Tensor::new(attention_mask, &candle_core::Device::Cpu)?
             .reshape((batch_size, max_len))?;
 
