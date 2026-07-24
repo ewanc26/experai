@@ -1,0 +1,32 @@
+# Build artifacts
+target/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Models and data (large files)
+models/
+*.safetensors
+*.bin
+*.pt
+*.onnx
+
+# Generated docs
+doc/
+
+# Env / secrets
+.env
+.env.*
+
+# Outputs
+outputs/
+checkpoints/
+wandb/
+mlruns/
