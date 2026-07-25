@@ -3,10 +3,17 @@ name = "experai"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["cuda"]
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+mkl = ["candle-core/mkl"]
+accelerate = ["candle-core/accelerate"]
+
 [dependencies]
-candle-core = { version = "0.9" }
-candle-nn = { version = "0.9" }
-candle-transformers = { version = "0.9" }
+candle-core = { version = "0.9", default-features = false }
+candle-nn = { version = "0.9", default-features = false }
+candle-transformers = { version = "0.9", default-features = false }
 tokenizers = "0.19"
 hf-hub = "0.3"
 safetensors = "0.5"
@@ -20,7 +27,8 @@ rand = "0.8"
 rand_distr = "0.4"
 regex = "1"
 csv = "1"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tokio-util = "0.7"
 atrium-api = "0.25"
 atrium-xrpc-client = { version = "0.5", features = ["reqwest"] }
 sysinfo = "0.30"
