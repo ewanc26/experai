@@ -35,6 +35,12 @@ pub struct TrainingConfig {
     pub max_cpu_load: f32,
     /// Check system load every N batches when monitoring is enabled.
     pub load_check_interval: usize,
+    /// Maximum swap usage fraction (0.0–1.0) before training pauses.
+    /// Default 0.0 means any swap usage triggers a response.
+    pub max_swap_usage: f32,
+    /// Minimum free memory (in MB) to maintain.  If available memory
+    /// drops below this, training pauses to avoid swapping.
+    pub min_free_mem_mb: u64,
 }
 
 impl Default for TrainingConfig {
@@ -56,6 +62,10 @@ impl Default for TrainingConfig {
             enable_load_monitoring: true,
             max_cpu_load: 0.80,
             load_check_interval: 10,
+            // Never allow swap — any swap usage triggers a response.
+            max_swap_usage: 0.0,
+            // Keep at least 2 GB free for the OS and other processes.
+            min_free_mem_mb: 2048,
         }
     }
 }

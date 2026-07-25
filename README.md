@@ -129,6 +129,32 @@ The `--auto-tune` flag enables automatic hardware detection and parameter optimi
 | 8 GB | 4 | 8 | 1024 | bf16 |
 | 4 GB | 1 | 32 | 512 | bf16/fp16/fp32 |
 
+## Memory Governance
+
+Experai is designed to be a good system citizen. Training dynamically adapts to system load to ensure the machine never stutters and never dips into swap memory.
+
+### Swap avoidance
+
+The system load monitor tracks swap usage alongside CPU and memory. The default policy is **zero tolerance** for swap:
+
+- If any swap is in use, training throttles hard (batch size scaled to 25%, learning rate halved, precision forced to f32).
+- If swap exceeds 2% of total swap capacity **or** free memory drops below 2 GB, training pauses for 2 seconds to let the OS reclaim memory before continuing.
+- The `max_swap_usage` config field (default `0.0`) controls the swap warning threshold.
+- The `min_free_mem_mb` config field (default `2048`) sets the minimum free memory floor.
+
+### Anti-stutter thresholds
+
+CPU and memory thresholds are set conservatively to keep the system responsive:
+
+| Metric | Warning | Critical | Response |
+|--------|---------|----------|----------|
+| CPU usage | 50% | 75% | Scale batch 1.0→0.5, LR 1.0→0.7 |
+| Memory usage | 60% | 75% | Scale batch 1.0→0.5, LR 1.0→0.7 |
+| Swap usage | 0% | 2% | Heavy throttle or pause |
+| Free memory | — | < 2 GB | Pause 2s |
+
+At critical levels, batch size is scaled to 25%, learning rate to 50%, and precision is forced to f32 to reduce compute intensity. All metrics are smoothed with an exponential moving average (alpha=0.3) to avoid reacting to transient spikes.
+
 ## Data Format
 
 Training data should be in JSONL format with a `text` field:
@@ -154,20 +180,38 @@ Environment variables:
 | `EXPERAI_LOG_LEVEL` | Log level (`trace`, `debug`, `info`, `warn`, `error`) | `info` |
 | `EXPERAI_SEED` | Random seed | `42` |
 
+### Training config fields
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `max_swap_usage` | Swap fraction that triggers throttling (0.0 = any swap) | `0.0` |
+| `min_free_mem_mb` | Minimum free memory in MB before training pauses | `2048` |
+| `enable_load_monitoring` | Dynamically scale batch/LR based on system load | `true` |
+| `max_cpu_load` | CPU fraction that triggers batch scaling | `0.80` |
+| `load_check_interval` | Poll system load every N steps | `10` |
+
 ## Architecture
 
 ```
 src/
-├── main.rs           # CLI entry point
-├── lib.rs            # Module declarations
-├── model.rs          # Transformer architecture
-├── training.rs       # Training loop and optimization
-├── data.rs           # Dataset loading and batching
-├── jetstream.rs      # AT Protocol Jetstream streaming
-├── at_protocol.rs    # AT Protocol REST API client
-├── preprocessing.rs  # Text cleaning pipeline
-├── utils.rs          # Hardware detection and auto-tuning
-└── logging/          # Structured logging configuration
+├── main.rs               # CLI entry point
+├── lib.rs                # Module declarations
+├── model.rs              # Transformer architecture
+├── training/
+│   ├── config.rs         # Hyperparameters and runtime settings
+│   ├── trainer.rs        # Training loop, checkpointing, LR scheduling
+│   └── loss.rs           # Loss and perplexity computation
+├── data/                 # Dataset loading, collation, tokenization
+├── commands/             # CLI command implementations (train, generate, etc.)
+├── utils/
+│   ├── device.rs         # GPU/CPU detection and selection
+│   ├── hardware.rs       # Hardware profiling and auto-tuning presets
+│   ├── monitor.rs        # System load monitor (CPU, memory, swap)
+│   └── helpers.rs        # Misc utilities (gradient accumulator, etc.)
+├── jetstream.rs          # AT Protocol Jetstream streaming
+├── at_protocol.rs        # AT Protocol REST API client
+├── preprocessing.rs      # Text cleaning pipeline
+└── logging/              # Structured logging configuration
 ```
 
 ## Testing

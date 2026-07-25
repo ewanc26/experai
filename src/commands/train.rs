@@ -41,6 +41,8 @@ pub fn run(
         enable_load_monitoring: true,
         max_cpu_load: 0.80,
         load_check_interval: 10,
+        max_swap_usage: 0.0,
+        min_free_mem_mb: 2048,
     };
 
     if auto_tune {
