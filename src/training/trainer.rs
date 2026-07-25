@@ -56,7 +56,12 @@ impl Trainer {
         )?;
 
         let load_monitor = if config.enable_load_monitoring {
-            let load_config = SystemLoadConfig::default();
+            let load_config = SystemLoadConfig {
+                swap_warn: config.max_swap_usage,
+                swap_crit: (config.max_swap_usage + 0.02).min(1.0),
+                min_free_mem_mb: config.min_free_mem_mb,
+                ..SystemLoadConfig::default()
+            };
             Some(SystemLoadMonitor::new(load_config))
         } else {
             None
@@ -146,8 +151,11 @@ impl Trainer {
 
         if let Some(ref monitor) = self.load_monitor {
             info!(
-                "System load monitoring enabled. Check every {} steps.",
-                monitor.check_interval()
+                "System load monitoring enabled. Check every {} steps. \
+                 Swap avoidance: max_swap={:.0}% min_free={}MB",
+                monitor.check_interval(),
+                self.config.max_swap_usage * 100.0,
+                self.config.min_free_mem_mb,
             );
         }
 
@@ -182,6 +190,17 @@ impl Trainer {
                             "[load-adapt] {} | batch {}/{} | lr {:.6}",
                             rec.reason, dynamic_batch_size, base_batch_size, self.current_lr
                         );
+
+                        // If the monitor says we should pause (e.g. swap is
+                        // being used or free memory is critically low), sleep
+                        // briefly to let the OS reclaim memory before continuing.
+                        if rec.should_pause {
+                            info!(
+                                "[load-adapt] PAUSING 2s — system memory pressure too high, \
+                                 avoiding swap"
+                            );
+                            std::thread::sleep(std::time::Duration::from_secs(2));
+                        }
                     }
                 }
 

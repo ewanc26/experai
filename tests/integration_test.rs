@@ -125,6 +125,8 @@ fn test_full_training_pipeline() {
         enable_load_monitoring: false,
         max_cpu_load: 0.8,
         load_check_interval: 10,
+        max_swap_usage: 0.0,
+        min_free_mem_mb: 2048,
     };
 
     let mut trainer = Trainer::new(train_config, model_config).unwrap();
