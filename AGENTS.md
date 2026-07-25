@@ -109,6 +109,33 @@ experai
 - On macOS, always build with `--no-default-features --features metal` (the default `cuda` feature will fail without CUDA)
 - Test all feature combinations in CI
 
+### Development Platform: macOS / Metal Only
+
+**The only configuration that compiles on the development machine is
+`--no-default-features --features metal`.** Development happens on macOS, which has no
+NVIDIA driver or CUDA toolkit, so:
+
+- **`cuda` is the default feature but cannot be built locally.** A bare `cargo build`,
+  `cargo test`, or `cargo clippy` will fail. Always pass
+  `--no-default-features --features metal` explicitly.
+- **`--all-features` cannot be used locally either** — it enables `cuda`. Substitute
+  `--no-default-features --features metal` wherever a command below says `--all-features`.
+- **CUDA code paths are therefore unverified by local checks.** Changes touching
+  `#[cfg(feature = "cuda")]` blocks, CUDA device selection, or CUDA kernel dispatch
+  compile only in CI on a GPU runner. Treat a green local run as saying *nothing* about
+  CUDA correctness, and say so explicitly when reporting results.
+- `mkl` (Intel MKL) likewise does not apply to Apple Silicon; `accelerate` is the macOS
+  BLAS equivalent.
+
+The standard local verification sequence is:
+
+```bash
+cargo fmt --check
+cargo clippy --no-default-features --features metal --all-targets -- -D warnings
+cargo test --no-default-features --features metal
+cargo build --release --no-default-features --features metal
+```
+
 ### Tokenizer Setup
 - The tokenizer file at `models/tokenizer.json` must be a valid HuggingFace `tokenizers` format JSON file
 - The `models/` directory is gitignored, so the tokenizer must be fetched on each machine:
@@ -146,8 +173,19 @@ experai
 - Model: random configs within valid ranges produce valid forward pass
 
 ### CI Validation (GitHub Actions)
+
+CI is the **only** place the CUDA feature gets compiled — see
+[Development Platform: macOS / Metal Only](#development-platform-macos--metal-only). The
+`cuda` steps below cannot be run before pushing, so a CUDA break will surface in CI
+rather than locally.
+
 ```yaml
+# Runs anywhere, including the macOS dev machine
 - cargo fmt --check
+- cargo clippy --no-default-features --features metal --all-targets -- -D warnings
+- cargo test --no-default-features --features metal
+
+# Linux + CUDA toolkit runner only — NOT reproducible on macOS
 - cargo clippy --all-targets --all-features -- -D warnings
 - cargo test --all-features
 - cargo build --release --features cuda
@@ -190,6 +228,8 @@ experai
 
 | Symptom | Likely Cause | Fix |
 |---------|--------------|-----|
+| Build fails on `candle-core` / missing `nvcc` on macOS | Bare cargo command enabled the default `cuda` feature | Add `--no-default-features --features metal` (see [Development Platform](#development-platform-macos--metal-only)) |
+| `--all-features` fails to build on macOS | `--all-features` includes `cuda` | Use `--no-default-features --features metal`; leave CUDA checks to CI |
 | `CUDA error: invalid device ordinal` | `EXPERAI_DEVICE` points to non-existent GPU | `nvidia-smi` to list devices; set valid ordinal |
 | `OutOfMemory` during training | Batch size too large, no gradient accumulation | Reduce `--batch-size`, increase `--grad-accum` |
 | Loss = NaN after N steps | fp16 overflow, no loss scaling | Enable dynamic loss scaling, check gradient clipping |
@@ -207,13 +247,21 @@ experai
 
 ## Validation Checklist (Pre-Commit)
 
+Runnable on the macOS dev machine:
+
 - [ ] `cargo fmt --check`
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings`
-- [ ] `cargo test --all-features`
-- [ ] `cargo build --release --features cuda`
+- [ ] `cargo clippy --no-default-features --features metal --all-targets -- -D warnings`
+- [ ] `cargo test --no-default-features --features metal`
+- [ ] `cargo build --release --no-default-features --features metal`
 - [ ] CLI manual test: `./target/release/experai train --help`
 - [ ] CLI manual test: `./target/release/experai preprocess --help`
 - [ ] CLI manual test: `./target/release/experai generate --help`
+
+Deferred to CI — **cannot be completed locally**, so do not claim them as verified:
+
+- [ ] `cargo clippy --all-targets --all-features -- -D warnings`
+- [ ] `cargo test --all-features`
+- [ ] `cargo build --release --features cuda`
 - [ ] Edge cases: zero epochs, huge batch, invalid paths, missing files
 - [ ] Docs updated: `README.md`, `ARCHITECTURE.md`, inline comments
 - [ ] No `unwrap()`/`expect()` in `src/` (except tests)
