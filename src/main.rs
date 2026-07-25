@@ -10,7 +10,7 @@ use experai::logging::init_logger;
 /// Top-level CLI parser.
 #[derive(Parser)]
 #[command(name = "experai")]
-#[command(version = "0.2.0")]
+#[command(version = "0.3.0")]
 #[command(about = "Small language model training toolkit")]
 struct Cli {
     #[command(subcommand)]
