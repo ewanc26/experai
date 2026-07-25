@@ -43,6 +43,9 @@ enum Commands {
         /// Auto-detect hardware and optimize training params
         #[arg(long)]
         auto_tune: bool,
+        /// Resume training from a checkpoint
+        #[arg(long)]
+        resume: bool,
     },
     /// Preprocess text data for training
     Preprocess {
@@ -171,6 +174,7 @@ fn main() -> Result<()> {
             output_dir,
             tokenizer,
             auto_tune,
+            resume,
         } => {
             info!(
                 "Starting training: model={}, data={}, lr={}, epochs={}",
@@ -232,8 +236,18 @@ fn main() -> Result<()> {
 
             // Build and train model
             let model_config = ModelConfig::default();
-            let mut trainer = Trainer::new(final_config, model_config)?;
+            let mut trainer = Trainer::new(final_config.clone(), model_config)?;
             info!("Trainer initialised on {:?}", trainer.device);
+
+            if resume {
+                let ckpt_path = format!("{}/best", output_dir);
+                if std::path::Path::new(&format!("{}.safetensors", ckpt_path)).exists() {
+                    trainer.load_checkpoint(&ckpt_path)?;
+                    info!("Resumed from checkpoint at step {}", trainer.global_step);
+                } else {
+                    warn!("No checkpoint found at {}, starting fresh", ckpt_path);
+                }
+            }
 
             let losses = trainer.train(&dataset)?;
             info!("Training complete. Losses: {:?}", losses);
@@ -344,7 +358,7 @@ fn main() -> Result<()> {
             let encoding = tok
                 .encode(prompt.to_string(), true)
                 .map_err(|e| anyhow::anyhow!("Tokenization error: {}", e))?;
-            let input_ids: Vec<u32> = encoding.get_ids().iter().copied().collect();
+            let input_ids = encoding.get_ids().to_vec();
             info!("Prompt tokenised to {} tokens", input_ids.len());
 
             // Generate tokens
@@ -431,7 +445,7 @@ fn main() -> Result<()> {
             // Train on the loaded data
             let mut final_at_config = TrainingConfig {
                 model_name: model_name.clone(),
-                data_path: data_path,
+                data_path,
                 output_dir: output_dir.clone(),
                 epochs,
                 learning_rate: lr,

@@ -632,22 +632,34 @@ mod tests {
 
     #[test]
     fn test_device_selection_strategies() {
-        // Test force_cpu
+        let prev_device = std::env::var("EXPERAI_DEVICE").ok();
+        let prev_strategy = std::env::var("EXPERAI_DEVICE_STRATEGY").ok();
+        std::env::remove_var("EXPERAI_DEVICE");
         std::env::set_var("EXPERAI_DEVICE_STRATEGY", "force_cpu");
         let selection = select_optimal_device();
         assert_eq!(selection.device, ComputeDevice::Cpu);
         assert_eq!(selection.strategy_used, DeviceSelectionStrategy::ForceCpu);
-        
-        std::env::remove_var("EXPERAI_DEVICE_STRATEGY");
+        if let Some(v) = prev_strategy {
+            std::env::set_var("EXPERAI_DEVICE_STRATEGY", v);
+        } else {
+            std::env::remove_var("EXPERAI_DEVICE_STRATEGY");
+        }
+        if let Some(v) = prev_device {
+            std::env::set_var("EXPERAI_DEVICE", v);
+        }
     }
 
     #[test]
     fn test_device_override() {
+        let prev = std::env::var("EXPERAI_DEVICE").ok();
         std::env::set_var("EXPERAI_DEVICE", "metal");
         let selection = select_optimal_device();
         assert_eq!(selection.device, ComputeDevice::Metal);
-        
-        std::env::remove_var("EXPERAI_DEVICE");
+        if let Some(v) = prev {
+            std::env::set_var("EXPERAI_DEVICE", v);
+        } else {
+            std::env::remove_var("EXPERAI_DEVICE");
+        }
     }
 
     #[test]

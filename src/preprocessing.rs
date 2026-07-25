@@ -184,7 +184,7 @@ impl Preprocessor {
                 .encode(cleaned.as_str(), true)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-            let token_ids: Vec<u32> = tokens.get_ids().iter().copied().collect();
+            let token_ids = tokens.get_ids().to_vec();
 
             let record = serde_json::json!({
                 "text": cleaned,
@@ -214,6 +214,7 @@ impl Preprocessor {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_preprocess_config(
     lowercase: bool,
     remove_extra_whitespace: bool,

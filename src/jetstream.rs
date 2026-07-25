@@ -152,9 +152,7 @@ pub async fn collect_from_jetstream(
             .encode(sample.text.as_str(), true)
             .map_err(|e| anyhow!("Tokenization error: {}", e))?
             .get_ids()
-            .iter()
-            .map(|&id| id as u32)
-            .collect::<Vec<_>>();
+            .to_vec();
         sample.tokens = tokens;
     }
 

@@ -36,63 +36,16 @@ impl Dataset {
                 .get("text")
                 .ok_or_else(|| anyhow!("Missing 'text' field in line {}", idx))?;
 
-            let tokens = tokenizer
+            let encoding = tokenizer
                 .encode(text.as_str(), true)
-                .map_err(|e| anyhow!("Tokenization error: {}", e))?
-                .get_ids()
-                .iter()
-                .map(|&id| id as u32)
-                .collect::<Vec<_>>();
-
-            if tokens.len() > max_length {
-                warn!(
-                    "Sample {} exceeds max length ({} > {})",
-                    idx,
-                    tokens.len(),
-                    max_length
-                );
-            }
+                .map_err(|e| anyhow!("Tokenization error: {}", e))?;
+            let tokens = encoding.get_ids().to_vec();
 
             samples.push(DatasetSample {
                 text: text.to_string(),
                 tokens,
                 label: parsed.get("label").cloned(),
                 did: parsed.get("did").cloned(),
-            });
-        }
-
-        Ok(Self {
-            samples,
-            tokenizer,
-            max_length,
-        })
-    }
-
-    pub fn from_csv(path: &str, tokenizer: Tokenizer, max_length: usize) -> Result<Self> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let mut samples = Vec::new();
-
-        let mut csv_reader = csv::Reader::from_reader(reader);
-        for result in csv_reader.deserialize() {
-            let record: HashMap<String, String> = result?;
-            let text = record
-                .get("text")
-                .ok_or_else(|| anyhow!("Missing 'text' column"))?;
-
-            let tokens = tokenizer
-                .encode(text.as_str(), true)
-                .map_err(|e| anyhow!("Tokenization error: {}", e))?
-                .get_ids()
-                .iter()
-                .map(|&id| id as u32)
-                .collect::<Vec<_>>();
-
-            samples.push(DatasetSample {
-                text: text.to_string(),
-                tokens,
-                label: record.get("label").cloned(),
-                did: record.get("did").cloned(),
             });
         }
 
@@ -132,9 +85,7 @@ impl Dataset {
                     .encode(text.as_str(), true)
                     .map_err(|e| anyhow!("Tokenization error: {}", e))?
                     .get_ids()
-                    .iter()
-                    .map(|&id| id as u32)
-                    .collect::<Vec<_>>();
+                    .to_vec();
 
                 samples.push(DatasetSample {
                     text,
@@ -221,14 +172,13 @@ impl DataCollator {
             let tokens = &sample.tokens;
             let seq_len = tokens.len().min(max_len);
 
-            for i in 0..max_len {
-                if i < seq_len {
-                    input_ids.push(tokens[i]);
-                    attention_mask.push(1u32);
-                } else {
-                    input_ids.push(self.pad_token_id);
-                    attention_mask.push(0u32);
-                }
+            for &token in tokens.iter().take(seq_len) {
+                input_ids.push(token);
+                attention_mask.push(1u32);
+            }
+            for _ in seq_len..max_len {
+                input_ids.push(self.pad_token_id);
+                attention_mask.push(0u32);
             }
         }
 

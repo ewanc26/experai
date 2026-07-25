@@ -6,7 +6,7 @@ use tracing::info;
 
 use crate::data::{DataCollator, Dataset};
 use crate::model::{build_model, ModelConfig, TransformerModel};
-use crate::utils::{GradientAccumulator, SystemLoadConfig, SystemLoadMonitor};
+use crate::utils::{self, GradientAccumulator, SystemLoadConfig, SystemLoadMonitor};
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct TrainingConfig {
@@ -60,20 +60,22 @@ pub struct Trainer {
     pub best_loss: f64,
     pub global_step: usize,
     pub load_monitor: Option<SystemLoadMonitor>,
+    pub current_lr: f64,
 }
 
 impl Trainer {
     pub fn new(config: TrainingConfig, model_config: ModelConfig) -> Result<Self> {
-        let device = Self::get_device();
+        let device = utils::select_optimal_device().device.to_candle()?;
         let var_map = VarMap::new();
 
         let vb = VarBuilder::from_varmap(&var_map, DType::F32, &device);
         let model = build_model(&model_config, vb)?;
 
+        let current_lr = config.learning_rate;
         let optimizer = AdamW::new(
             var_map.all_vars(),
             candle_nn::ParamsAdamW {
-                lr: config.learning_rate,
+                lr: current_lr,
                 beta1: 0.9,
                 beta2: 0.999,
                 eps: 1e-8,
@@ -101,33 +103,54 @@ impl Trainer {
             best_loss: f64::INFINITY,
             global_step: 0,
             load_monitor,
+            current_lr,
         })
     }
 
-    fn get_device() -> Device {
-        match std::env::var("EXPERAI_DEVICE") {
-            Ok(v) if v.starts_with("cuda") => {
-                #[cfg(feature = "cuda")]
-                {
-                    Device::new_cuda(0).unwrap_or(Device::Cpu)
-                }
-                #[cfg(not(feature = "cuda"))]
-                {
-                    Device::Cpu
-                }
+    pub fn update_learning_rate(&mut self, new_lr: f64) -> Result<()> {
+        self.optimizer = AdamW::new(
+            self.var_map.all_vars(),
+            candle_nn::ParamsAdamW {
+                lr: new_lr,
+                beta1: 0.9,
+                beta2: 0.999,
+                eps: 1e-8,
+                weight_decay: self.config.weight_decay,
+            },
+        )?;
+        self.current_lr = new_lr;
+        Ok(())
+    }
+
+    pub fn validate(&self, dataset: &Dataset) -> Result<f64> {
+        let collator = DataCollator::new(
+            self.model.config.pad_token_id as u32,
+            self.config.max_seq_len,
+        );
+
+        let mut total_loss = 0.0_f64;
+        let mut count = 0_usize;
+
+        for chunk in dataset.samples.chunks(self.config.batch_size) {
+            if chunk.len() < 2 {
+                continue;
             }
-            Ok(v) if v == "metal" => {
-                #[cfg(feature = "metal")]
-                {
-                    Device::new_metal(0).unwrap_or(Device::Cpu)
-                }
-                #[cfg(not(feature = "metal"))]
-                {
-                    Device::Cpu
-                }
-            }
-            _ => Device::Cpu,
+
+            let (input_ids, _attention_mask) = collator.collate(chunk)?;
+            let input_ids = input_ids.to_device(&self.device)?;
+
+            let logits = self.model.forward(&input_ids)?;
+            let shift_logits = logits.i((.., 0..input_ids.shape().dims()[1].saturating_sub(1), ..))?;
+            let shift_labels = input_ids.i((.., 1..))?;
+
+            let loss = self.compute_loss(&shift_logits, &shift_labels)?;
+            let loss_val = loss.to_scalar::<f32>()? as f64;
+            total_loss += loss_val;
+            count += 1;
         }
+
+        let avg_loss = if count > 0 { total_loss / count as f64 } else { 0.0 };
+        Ok(avg_loss)
     }
 
     pub fn train(&mut self, dataset: &Dataset) -> Result<Vec<f64>> {
@@ -163,7 +186,7 @@ impl Trainer {
                 }
 
                 if let Some(ref mut monitor) = self.load_monitor {
-                    if self.global_step % self.config.load_check_interval == 0 {
+                    if self.global_step.is_multiple_of(self.config.load_check_interval) {
                         let cpu_load = monitor.current_load();
                         let scale = monitor.recommended_batch_scale();
                         dynamic_batch_size = ((base_batch_size as f32 * scale) as usize).max(1);
@@ -205,6 +228,12 @@ impl Trainer {
                 batch_count += 1;
                 self.global_step += 1;
 
+                let scheduled_lr = self.learning_rate(self.global_step);
+                if (scheduled_lr - self.current_lr).abs() > 1e-12 {
+                    self.update_learning_rate(scheduled_lr)?;
+                    info!("Step {} | Learning rate updated to {:.6}", self.global_step, scheduled_lr);
+                }
+
                 self.optimizer.backward_step(&loss)?;
 
                 if grad_accum.step() {
@@ -214,8 +243,8 @@ impl Trainer {
                     );
                 }
 
-                if self.global_step % 10 == 0 {
-                    info!("Step {} | Loss: {:.4}", self.global_step, loss_val);
+                if self.global_step.is_multiple_of(10) {
+                    info!("Step {} | Loss: {:.4} | LR: {:.6}", self.global_step, loss_val, self.current_lr);
                 }
 
                 if self.global_step >= total_steps {
@@ -228,14 +257,18 @@ impl Trainer {
             } else {
                 0.0
             };
-            info!("Epoch {} avg loss: {:.4}", epoch + 1, avg_loss);
+            info!("Epoch {} avg train loss: {:.4}", epoch + 1, avg_loss);
+
+            let val_loss = self.validate(dataset)?;
+            let val_ppl = compute_perplexity(val_loss);
+            info!("Epoch {} avg val loss: {:.4} | perplexity: {:.4}", epoch + 1, val_loss, val_ppl);
             losses.push(avg_loss);
 
             if avg_loss < self.best_loss {
                 self.best_loss = avg_loss;
                 let ckpt_path = format!("{}/best", self.config.output_dir);
                 self.save_checkpoint(&ckpt_path)?;
-                info!("New best loss: {:.4}, saved checkpoint", avg_loss);
+                info!("New best train loss: {:.4}, saved checkpoint", avg_loss);
             }
         }
 
@@ -246,7 +279,7 @@ impl Trainer {
         let (batch, seq, _vocab) = logits.dims3()?;
         let vocab_size = logits.shape().dims().last().copied().unwrap_or(0);
 
-        let log_probs = candle_nn::ops::log_softmax(&logits, D::Minus1)?;
+        let log_probs = candle_nn::ops::log_softmax(logits, D::Minus1)?;
 
         let labels_flat = labels.reshape((batch * seq, 1))?;
         let log_probs_flat = log_probs.reshape((batch * seq, vocab_size))?;
@@ -295,7 +328,13 @@ impl Trainer {
                 self.best_loss = loss;
             }
 
-            info!("Loaded checkpoint from step {}", self.global_step);
+            info!("Loaded checkpoint metadata from step {}", self.global_step);
+        }
+
+        let weights_path = path.with_extension("safetensors");
+        if weights_path.exists() {
+            self.var_map.load(weights_path.to_str().unwrap())?;
+            info!("Loaded checkpoint weights from {}", weights_path.display());
         }
 
         Ok(())
