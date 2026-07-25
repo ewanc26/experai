@@ -131,14 +131,28 @@ pub async fn collect_from_jetstream(
 
                 if should_include_post(&post, &dids_filter) {
                     posts.push(sample);
-                    collected_clone.fetch_add(1, Ordering::Relaxed);
+                    let count = collected_clone.fetch_add(1, Ordering::Relaxed) + 1;
+                    if count.is_multiple_of(100) || count <= 5 {
+                        info!(
+                            "Collected {} posts ({:.0}s elapsed, {:.1} posts/s)",
+                            count,
+                            start.elapsed().as_secs_f64(),
+                            count as f64 / start.elapsed().as_secs_f64().max(0.1)
+                        );
+                    }
                 } else {
                     filtered.fetch_add(1, Ordering::Relaxed);
                 }
             }
             _ = tokio::time::sleep(Duration::from_secs(5)) => {
                 tick_count += 1;
-                info!("Tick #{}: {:.0}s elapsed, {} posts collected", tick_count, start.elapsed().as_secs_f64(), posts.len());
+                let elapsed = start.elapsed().as_secs_f64();
+                let count = posts.len();
+                info!(
+                    "Tick #{}: {:.0}s elapsed, {} posts collected ({:.1} posts/s)",
+                    tick_count, elapsed, count,
+                    if elapsed > 0.0 { count as f64 / elapsed } else { 0.0 }
+                );
             }
         }
     }

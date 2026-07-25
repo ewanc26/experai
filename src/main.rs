@@ -13,7 +13,7 @@ use tracing::{info, warn, debug};
 
 #[derive(Parser)]
 #[command(name = "experai")]
-#[command(version = "0.1.0")]
+#[command(version = "0.2.0")]
 #[command(about = "Small language model training toolkit")]
 struct Cli {
     #[command(subcommand)]
@@ -154,6 +154,21 @@ enum Commands {
         /// Auto-detect hardware and optimize training params
         #[arg(long)]
         auto_tune: bool,
+    },
+    /// Export a checkpoint to GGUF for LM Studio
+    Package {
+        /// Path to checkpoint (e.g., output/best — will look for best.safetensors + model_config.json)
+        #[arg(short = 'c', long)]
+        checkpoint: String,
+        /// Model name for the GGUF output directory
+        #[arg(short = 'n', long)]
+        name: String,
+        /// LM Studio models directory (default: ~/.lmstudio/models/custom)
+        #[arg(long)]
+        lmstudio_dir: Option<String>,
+        /// Output dtype: f32, f16 (default: f16)
+        #[arg(long, default_value = "f16")]
+        dtype: String,
     },
 }
 
@@ -592,6 +607,24 @@ fn main() -> Result<()> {
 
             let losses = trainer.train(&dataset)?;
             info!("Jetstream training complete. Losses: {:?}", losses);
+        }
+        Commands::Package {
+            checkpoint,
+            name,
+            lmstudio_dir,
+            dtype,
+        } => {
+            info!(
+                "Exporting checkpoint to GGUF: checkpoint={}, name={}, dtype={}",
+                checkpoint, name, dtype
+            );
+
+            experai::export::export_to_gguf(
+                &checkpoint,
+                &name,
+                lmstudio_dir.as_deref(),
+                &dtype,
+            )?;
         }
     }
 

@@ -1,0 +1,22 @@
+{
+  "best_loss": -12.801686981201172,
+  "config": {
+    "batch_size": 16,
+    "data_path": "output/continuous/jetstream_data.jsonl",
+    "enable_load_monitoring": true,
+    "epochs": 3,
+    "gradient_accumulation_steps": 8,
+    "learning_rate": 0.00003,
+    "load_check_interval": 10,
+    "max_cpu_load": 0.800000011920929,
+    "max_grad_norm": 1.0,
+    "max_seq_len": 512,
+    "model_name": "gpt2",
+    "output_dir": "output/continuous",
+    "precision": "f32",
+    "seed": 42,
+    "warmup_steps": 300,
+    "weight_decay": 0.01
+  },
+  "global_step": 625
+}

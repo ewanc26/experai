@@ -313,6 +313,13 @@ impl Trainer {
         let metadata_path = path.with_extension("json");
         std::fs::write(metadata_path, serde_json::to_string_pretty(&metadata)?)?;
 
+        // Save model config for export
+        let model_config_path = path.parent().unwrap_or(Path::new(".")).join("model_config.json");
+        std::fs::write(
+            &model_config_path,
+            serde_json::to_string_pretty(&self.model.config)?,
+        )?;
+
         // Save model weights
         let weights_path = path.with_extension("safetensors");
         self.var_map.save(weights_path.to_str().unwrap())?;
