@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 /// Device selection for compute. Maps to candle_core::Device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,7 +220,10 @@ pub fn select_optimal_device() -> DeviceSelection {
                     fallback_reason: None,
                 }
             } else if cfg!(feature = "metal") && gpus.iter().any(|g| g.kind == GpuKind::Metal) {
-                let _gpu = gpus.iter().find(|g| g.kind == GpuKind::Metal).expect("checked above");
+                let _gpu = gpus
+                    .iter()
+                    .find(|g| g.kind == GpuKind::Metal)
+                    .expect("checked above");
                 DeviceSelection {
                     device: ComputeDevice::Metal,
                     strategy_used: strategy,
@@ -245,7 +248,10 @@ pub fn select_optimal_device() -> DeviceSelection {
                     fallback_reason: None,
                 }
             } else if cfg!(feature = "cuda") && gpus.iter().any(|g| g.kind == GpuKind::Cuda) {
-                let gpu = gpus.iter().find(|g| g.kind == GpuKind::Cuda).expect("checked above");
+                let gpu = gpus
+                    .iter()
+                    .find(|g| g.kind == GpuKind::Cuda)
+                    .expect("checked above");
                 DeviceSelection {
                     device: ComputeDevice::Cuda(gpu.index),
                     strategy_used: strategy,

@@ -1,7 +1,7 @@
-use crate::data::{DatasetSample, DataCollator};
-use crate::model::{ModelConfig, build_model, causal_mask};
+use crate::data::{DataCollator, DatasetSample};
+use crate::model::{build_model, causal_mask, ModelConfig};
 use crate::training::TrainingConfig;
-use candle_core::{Device, Tensor, DType};
+use candle_core::{DType, Device, Tensor};
 use candle_nn::{Module, VarBuilder, VarMap};
 use tokenizers::Tokenizer;
 
@@ -95,7 +95,13 @@ fn test_model_forward_pass() {
     let output = model.forward(&input_ids).expect("forward pass failed");
 
     assert_eq!(output.dims(), &[1, 10, 100]);
-    let has_nan = output.to_vec3::<f32>().unwrap().iter().flatten().flatten().any(|v| v.is_nan());
+    let has_nan = output
+        .to_vec3::<f32>()
+        .unwrap()
+        .iter()
+        .flatten()
+        .flatten()
+        .any(|v| v.is_nan());
     assert!(!has_nan, "output contains NaN values");
 }
 
@@ -112,8 +118,13 @@ fn test_causal_mask() {
     for (i, row) in mask_vec.iter().enumerate() {
         for (j, &val) in row.iter().enumerate() {
             if j > i {
-                assert!(val.is_infinite() && val < 0.0,
-                    "expected -inf at ({},{}) but got {}", i, j, val);
+                assert!(
+                    val.is_infinite() && val < 0.0,
+                    "expected -inf at ({},{}) but got {}",
+                    i,
+                    j,
+                    val
+                );
             } else {
                 assert_eq!(val, 0.0, "expected 0.0 at ({},{}) but got {}", i, j, val);
             }
@@ -123,13 +134,17 @@ fn test_causal_mask() {
 
 // Preprocessing unit tests
 
-fn make_preprocessor(config: crate::preprocessing::PreprocessConfig) -> crate::preprocessing::Preprocessor {
+fn make_preprocessor(
+    config: crate::preprocessing::PreprocessConfig,
+) -> crate::preprocessing::Preprocessor {
     use tokenizers::models::bpe::BPE;
     let tokenizer = Tokenizer::new(BPE::default());
     crate::preprocessing::Preprocessor::new(tokenizer, Some(config))
 }
 
-fn preprocessor_for(cleanup_fn: impl FnOnce(&mut crate::preprocessing::PreprocessConfig)) -> crate::preprocessing::Preprocessor {
+fn preprocessor_for(
+    cleanup_fn: impl FnOnce(&mut crate::preprocessing::PreprocessConfig),
+) -> crate::preprocessing::Preprocessor {
     let mut config = crate::preprocessing::PreprocessConfig {
         lowercase: false,
         remove_extra_whitespace: false,
@@ -188,10 +203,7 @@ fn test_clean_text_remove_emails() {
         p.clean_text("Contact user@example.com for info"),
         "Contact [EMAIL] for info"
     );
-    assert_eq!(
-        p.clean_text("a@b.com and x@y.org"),
-        "[EMAIL] and [EMAIL]"
-    );
+    assert_eq!(p.clean_text("a@b.com and x@y.org"), "[EMAIL] and [EMAIL]");
     assert_eq!(p.clean_text("no email here"), "no email here");
 }
 
@@ -199,7 +211,10 @@ fn test_clean_text_remove_emails() {
 fn test_clean_text_remove_whitespace() {
     let p = preprocessor_for(|c| c.remove_extra_whitespace = true);
     assert_eq!(p.clean_text("hello   world"), "hello world");
-    assert_eq!(p.clean_text("  leading and trailing  "), "leading and trailing");
+    assert_eq!(
+        p.clean_text("  leading and trailing  "),
+        "leading and trailing"
+    );
     assert_eq!(p.clean_text("tabs\tand\nnewlines"), "tabs and newlines");
     assert_eq!(p.clean_text("one"), "one");
 }

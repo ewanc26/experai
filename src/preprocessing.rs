@@ -71,10 +71,7 @@ impl Preprocessor {
             "Creating preprocessor: clean={}, dedupe={}, min_len={}, max_len={}",
             config.clean, config.dedupe, config.min_length, config.max_length
         );
-        Self {
-            tokenizer,
-            config,
-        }
+        Self { tokenizer, config }
     }
 
     /// Apply the regex-based cleaning pipeline to a single text string.
@@ -97,9 +94,7 @@ impl Preprocessor {
         }
 
         if self.config.remove_emails {
-            cleaned = RE_EMAIL
-                .replace_all(&cleaned, "[EMAIL]")
-                .to_string();
+            cleaned = RE_EMAIL.replace_all(&cleaned, "[EMAIL]").to_string();
         }
 
         if self.config.remove_extra_whitespace {
@@ -202,7 +197,11 @@ impl Preprocessor {
     ///
     /// Applies optional cleaning and deduplication per sample. Each line
     /// contains `"text"`, `"tokens"`, and `"did"` fields.
-    pub fn save_dataset_to_jsonl(&self, dataset: &Dataset, output_path: &str) -> Result<(), ExperaiError> {
+    pub fn save_dataset_to_jsonl(
+        &self,
+        dataset: &Dataset,
+        output_path: &str,
+    ) -> Result<(), ExperaiError> {
         info!("Saving {} samples to {}", dataset.len(), output_path);
         let mut output_file = File::create(output_path)?;
         let mut seen_texts = if self.config.dedupe {

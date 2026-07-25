@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use tokenizers::Tokenizer;
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 use crate::at_protocol::{extract_text_from_value, ATProtocolClient};
 
@@ -30,8 +30,15 @@ pub struct Dataset {
 impl Dataset {
     /// Load a dataset from a JSONL file. Each line must contain a `"text"` field;
     /// optional `"label"` and `"did"` fields are captured if present.
-    pub fn from_jsonl(path: &str, tokenizer: Tokenizer, max_length: usize) -> Result<Self, ExperaiError> {
-        info!("Loading dataset from JSONL: {} (max_length={})", path, max_length);
+    pub fn from_jsonl(
+        path: &str,
+        tokenizer: Tokenizer,
+        max_length: usize,
+    ) -> Result<Self, ExperaiError> {
+        info!(
+            "Loading dataset from JSONL: {} (max_length={})",
+            path, max_length
+        );
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let mut samples = Vec::new();
@@ -39,9 +46,9 @@ impl Dataset {
         for (idx, line) in reader.lines().enumerate() {
             let line = line?;
             let parsed: HashMap<String, String> = serde_json::from_str(&line)?;
-            let text = parsed
-                .get("text")
-                .ok_or_else(|| ExperaiError::Data(format!("Missing 'text' field in line {}", idx)))?;
+            let text = parsed.get("text").ok_or_else(|| {
+                ExperaiError::Data(format!("Missing 'text' field in line {}", idx))
+            })?;
 
             let encoding = tokenizer
                 .encode(text.as_str(), true)
@@ -79,10 +86,9 @@ impl Dataset {
 
         let client = ATProtocolClient::new(pds_url);
 
-        let did = client
-            .resolve_handle(handle)
-            .await
-            .map_err(|e| ExperaiError::AtProtocol(format!("failed to resolve handle {handle}: {e}")))?;
+        let did = client.resolve_handle(handle).await.map_err(|e| {
+            ExperaiError::AtProtocol(format!("failed to resolve handle {handle}: {e}"))
+        })?;
         info!(
             "Resolved DID: {} for handle: {} on PDS: {}",
             did, handle, pds_url
@@ -91,12 +97,17 @@ impl Dataset {
         let records = client
             .list_records_paginated(&did, "app.bsky.feed.post", max_samples)
             .await
-            .map_err(|e| ExperaiError::AtProtocol(format!("failed to list records for {did}: {e}")))?;
+            .map_err(|e| {
+                ExperaiError::AtProtocol(format!("failed to list records for {did}: {e}"))
+            })?;
         info!("Found {} records for DID: {}", records.len(), did);
 
         for (_uri, _cid, value) in records {
             if let Some(text) = extract_text_from_value(&value) {
-                let did = value.get("did").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let did = value
+                    .get("did")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 let tokens = tokenizer
                     .encode(text.as_str(), true)
                     .map_err(ExperaiError::Tokenization)?
@@ -133,7 +144,12 @@ impl Dataset {
         let split_idx = (self.samples.len() as f64 * ratio) as usize;
         let train_samples = self.samples[..split_idx].to_vec();
         let val_samples = self.samples[split_idx..].to_vec();
-        debug!("Dataset split: {} train, {} val (ratio={})", train_samples.len(), val_samples.len(), ratio);
+        debug!(
+            "Dataset split: {} train, {} val (ratio={})",
+            train_samples.len(),
+            val_samples.len(),
+            ratio
+        );
 
         (
             Self {

@@ -61,7 +61,12 @@ impl Trainer {
     pub fn new(config: TrainingConfig, model_config: ModelConfig) -> Result<Self> {
         info!(
             "Creating trainer: lr={}, batch={}, grad_accum={}, epochs={}, precision={}, max_seq={}",
-            config.learning_rate, config.batch_size, config.gradient_accumulation_steps, config.epochs, config.precision, config.max_seq_len
+            config.learning_rate,
+            config.batch_size,
+            config.gradient_accumulation_steps,
+            config.epochs,
+            config.precision,
+            config.max_seq_len
         );
         let device = utils::select_optimal_device().device.to_candle()?;
         let var_map = VarMap::new();
@@ -121,7 +126,10 @@ impl Trainer {
     }
 
     pub fn update_learning_rate(&mut self, new_lr: f64) -> Result<()> {
-        debug!("Updating learning rate: {:.6} -> {:.6}", self.current_lr, new_lr);
+        debug!(
+            "Updating learning rate: {:.6} -> {:.6}",
+            self.current_lr, new_lr
+        );
         self.optimizer = AdamW::new(
             self.var_map.all_vars(),
             candle_nn::ParamsAdamW {
@@ -156,7 +164,8 @@ impl Trainer {
 
             let logits = self.model.forward(&input_ids)?;
             let logits = logits.to_dtype(DType::F32)?;
-            let shift_logits = logits.i((.., 0..input_ids.shape().dims()[1].saturating_sub(1), ..))?;
+            let shift_logits =
+                logits.i((.., 0..input_ids.shape().dims()[1].saturating_sub(1), ..))?;
             let shift_labels = input_ids.i((.., 1..))?;
 
             let loss = compute_loss(&shift_logits, &shift_labels)?;
@@ -165,8 +174,15 @@ impl Trainer {
             count += 1;
         }
 
-        let avg_loss = if count > 0 { total_loss / count as f64 } else { 0.0 };
-        debug!("Validation complete: avg_loss={:.4} ({} batches)", avg_loss, count);
+        let avg_loss = if count > 0 {
+            total_loss / count as f64
+        } else {
+            0.0
+        };
+        debug!(
+            "Validation complete: avg_loss={:.4} ({} batches)",
+            avg_loss, count
+        );
         Ok(avg_loss)
     }
 
@@ -210,7 +226,11 @@ impl Trainer {
         let mut grad_accum = GradientAccumulator::new(self.config.gradient_accumulation_steps);
         let accum_steps = self.config.gradient_accumulation_steps;
         let vars = self.var_map.all_vars();
-        let fp16_scale: f64 = if self.precision_dtype() == DType::F16 { 1024.0 } else { 1.0 };
+        let fp16_scale: f64 = if self.precision_dtype() == DType::F16 {
+            1024.0
+        } else {
+            1.0
+        };
 
         if let Some(ref monitor) = self.load_monitor {
             info!(
@@ -242,9 +262,12 @@ impl Trainer {
                 }
 
                 if let Some(ref mut monitor) = self.load_monitor {
-                    if self.global_step > 0 && self.global_step.is_multiple_of(monitor.check_interval()) {
+                    if self.global_step > 0
+                        && self.global_step.is_multiple_of(monitor.check_interval())
+                    {
                         let rec = monitor.poll();
-                        dynamic_batch_size = ((base_batch_size as f32 * rec.batch_scale) as usize).max(1);
+                        dynamic_batch_size =
+                            ((base_batch_size as f32 * rec.batch_scale) as usize).max(1);
 
                         let target_lr = self.config.learning_rate * rec.lr_scale as f64;
                         if (target_lr - self.current_lr).abs() > 1e-12 {
@@ -292,10 +315,15 @@ impl Trainer {
                 let scheduled_lr = self.learning_rate(self.global_step);
                 if (scheduled_lr - self.current_lr).abs() > 1e-12 {
                     self.update_learning_rate(scheduled_lr)?;
-                    info!("Step {} | Learning rate updated to {:.6}", self.global_step, scheduled_lr);
+                    info!(
+                        "Step {} | Learning rate updated to {:.6}",
+                        self.global_step, scheduled_lr
+                    );
                 }
 
-                let scaled_loss = loss.affine(1.0 / accum_steps as f64, 0.0)?.affine(fp16_scale, 0.0)?;
+                let scaled_loss = loss
+                    .affine(1.0 / accum_steps as f64, 0.0)?
+                    .affine(fp16_scale, 0.0)?;
                 let batch_grads = scaled_loss.backward()?;
 
                 if let Some(ref mut acc) = accum_grads {
@@ -344,7 +372,10 @@ impl Trainer {
                 }
 
                 if self.global_step.is_multiple_of(10) {
-                    info!("Step {} | Loss: {:.4} | LR: {:.6}", self.global_step, loss_val, self.current_lr);
+                    info!(
+                        "Step {} | Loss: {:.4} | LR: {:.6}",
+                        self.global_step, loss_val, self.current_lr
+                    );
                 }
 
                 if self.global_step >= total_steps {
@@ -361,7 +392,12 @@ impl Trainer {
 
             let val_loss = self.validate(dataset)?;
             let val_ppl = compute_perplexity(val_loss);
-            info!("Epoch {} avg val loss: {:.4} | perplexity: {:.4}", epoch + 1, val_loss, val_ppl);
+            info!(
+                "Epoch {} avg val loss: {:.4} | perplexity: {:.4}",
+                epoch + 1,
+                val_loss,
+                val_ppl
+            );
             losses.push(avg_loss);
 
             if avg_loss < self.best_loss {
@@ -456,7 +492,12 @@ impl Trainer {
             let progress = ((step - warmup) as f64 / decay_steps).min(1.0);
             min_lr + 0.5 * (lr - min_lr) * (1.0 + (std::f64::consts::PI * progress).cos())
         };
-        trace!("LR schedule: step={}, warmup={}, lr={:.6}", step, warmup, scheduled);
+        trace!(
+            "LR schedule: step={}, warmup={}, lr={:.6}",
+            step,
+            warmup,
+            scheduled
+        );
         scheduled
     }
 }

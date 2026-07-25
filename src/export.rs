@@ -19,7 +19,10 @@ fn safetensors_dtype_to_ggml(dt: Dtype) -> Result<u32, ExperaiError> {
         Dtype::F32 => Ok(GGML_F32),
         Dtype::F16 => Ok(GGML_F16),
         Dtype::BF16 => Ok(GGML_BF16),
-        _ => Err(ExperaiError::Export(format!("Unsupported dtype for GGUF export: {:?}", dt))),
+        _ => Err(ExperaiError::Export(format!(
+            "Unsupported dtype for GGUF export: {:?}",
+            dt
+        ))),
     }
 }
 
@@ -43,29 +46,43 @@ fn map_tensor_name(candle_name: &str) -> Result<String, ExperaiError> {
     }
 
     if let Some(rest) = candle_name.strip_prefix("layers.") {
-        let dot_pos = rest.find('.').ok_or_else(|| ExperaiError::Export("Invalid layer tensor name".to_string()))?;
-        let layer_idx: usize = rest[..dot_pos].parse().map_err(|_| ExperaiError::Export("Invalid layer index".to_string()))?;
+        let dot_pos = rest
+            .find('.')
+            .ok_or_else(|| ExperaiError::Export("Invalid layer tensor name".to_string()))?;
+        let layer_idx: usize = rest[..dot_pos]
+            .parse()
+            .map_err(|_| ExperaiError::Export("Invalid layer index".to_string()))?;
         let suffix = &rest[dot_pos + 1..];
 
         let gguf_suffix = match suffix {
             s if s.starts_with("self_attn.q_proj.") => {
-                let rest = s.strip_prefix("self_attn.q_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                let rest = s
+                    .strip_prefix("self_attn.q_proj.")
+                    .ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
                 format!("attn_q.{}", rest)
             }
             s if s.starts_with("self_attn.k_proj.") => {
-                let rest = s.strip_prefix("self_attn.k_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                let rest = s
+                    .strip_prefix("self_attn.k_proj.")
+                    .ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
                 format!("attn_k.{}", rest)
             }
             s if s.starts_with("self_attn.v_proj.") => {
-                let rest = s.strip_prefix("self_attn.v_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                let rest = s
+                    .strip_prefix("self_attn.v_proj.")
+                    .ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
                 format!("attn_v.{}", rest)
             }
             s if s.starts_with("self_attn.o_proj.") => {
-                let rest = s.strip_prefix("self_attn.o_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                let rest = s
+                    .strip_prefix("self_attn.o_proj.")
+                    .ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
                 format!("attn_output.{}", rest)
             }
             s if s.starts_with("input_layernorm.") => {
-                let rest = s.strip_prefix("input_layernorm.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                let rest = s
+                    .strip_prefix("input_layernorm.")
+                    .ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
                 format!("ln_1.{}", rest)
             }
             s if s.starts_with("post_attention_layernorm.") => {
@@ -75,33 +92,52 @@ fn map_tensor_name(candle_name: &str) -> Result<String, ExperaiError> {
                 format!("ln_2.{}", rest)
             }
             s if s.starts_with("mlp.gate_proj.") => {
-                let rest = s.strip_prefix("mlp.gate_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                let rest = s
+                    .strip_prefix("mlp.gate_proj.")
+                    .ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
                 format!("ffn_gate.{}", rest)
             }
             s if s.starts_with("mlp.up_proj.") => {
-                let rest = s.strip_prefix("mlp.up_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                let rest = s
+                    .strip_prefix("mlp.up_proj.")
+                    .ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
                 format!("ffn_up.{}", rest)
             }
             s if s.starts_with("mlp.down_proj.") => {
-                let rest = s.strip_prefix("mlp.down_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                let rest = s
+                    .strip_prefix("mlp.down_proj.")
+                    .ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
                 format!("ffn_down.{}", rest)
             }
-            _ => return Err(ExperaiError::Export(format!("Unknown tensor suffix in layer: {}", suffix))),
+            _ => {
+                return Err(ExperaiError::Export(format!(
+                    "Unknown tensor suffix in layer: {}",
+                    suffix
+                )))
+            }
         };
 
         return Ok(format!("blk.{}.{}", layer_idx, gguf_suffix));
     }
 
-    Err(ExperaiError::Export(format!("Unmapped tensor name: {}", candle_name)))
+    Err(ExperaiError::Export(format!(
+        "Unmapped tensor name: {}",
+        candle_name
+    )))
 }
 
 /// Load a [`ModelConfig`] from `model_config.json` in the given directory.
 fn load_model_config(checkpoint_dir: &Path) -> Result<ModelConfig, ExperaiError> {
     let config_path = checkpoint_dir.join("model_config.json");
-    let data = std::fs::read_to_string(&config_path)
-        .map_err(|e| ExperaiError::Export(format!("Failed to read model config from {}: {}", config_path.display(), e)))?;
-    let config: ModelConfig =
-        serde_json::from_str(&data).map_err(|e| ExperaiError::Export(format!("Failed to parse model config: {}", e)))?;
+    let data = std::fs::read_to_string(&config_path).map_err(|e| {
+        ExperaiError::Export(format!(
+            "Failed to read model config from {}: {}",
+            config_path.display(),
+            e
+        ))
+    })?;
+    let config: ModelConfig = serde_json::from_str(&data)
+        .map_err(|e| ExperaiError::Export(format!("Failed to parse model config: {}", e)))?;
     Ok(config)
 }
 
@@ -150,8 +186,13 @@ pub fn export_to_gguf(
     );
 
     // Deserialize the safetensors archive
-    let st_data = std::fs::read(&safetensors_path)
-        .map_err(|e| ExperaiError::Export(format!("Failed to read {}: {}", safetensors_path.display(), e)))?;
+    let st_data = std::fs::read(&safetensors_path).map_err(|e| {
+        ExperaiError::Export(format!(
+            "Failed to read {}: {}",
+            safetensors_path.display(),
+            e
+        ))
+    })?;
     let st = SafeTensors::deserialize(&st_data)
         .map_err(|e| ExperaiError::Export(format!("Failed to deserialize safetensors: {}", e)))?;
 
@@ -171,14 +212,19 @@ pub fn export_to_gguf(
     let lmstudio_base = match lmstudio_dir {
         Some(dir) => PathBuf::from(dir),
         None => {
-            let home = std::env::var("HOME").map_err(|_| ExperaiError::Config("HOME not set".to_string()))?;
-            PathBuf::from(home).join(".lmstudio").join("models").join("custom")
+            let home = std::env::var("HOME")
+                .map_err(|_| ExperaiError::Config("HOME not set".to_string()))?;
+            PathBuf::from(home)
+                .join(".lmstudio")
+                .join("models")
+                .join("custom")
         }
     };
 
     let output_dir = lmstudio_base.join(model_name);
-    std::fs::create_dir_all(&output_dir)
-        .map_err(|e| ExperaiError::Export(format!("Failed to create {}: {}", output_dir.display(), e)))?;
+    std::fs::create_dir_all(&output_dir).map_err(|e| {
+        ExperaiError::Export(format!("Failed to create {}: {}", output_dir.display(), e))
+    })?;
 
     let gguf_path = output_dir.join(format!("{}.gguf", model_name));
     info!("Writing GGUF to {}", gguf_path.display());
@@ -214,9 +260,9 @@ pub fn export_to_gguf(
     let mut tensor_data_map: Vec<(String, Vec<u8>, Vec<u64>, u32)> = Vec::new();
 
     for (candle_name, gguf_name) in &ordered_names {
-        let tensor = st
-            .tensor(candle_name)
-            .map_err(|e| ExperaiError::Export(format!("Failed to read tensor {}: {}", candle_name, e)))?;
+        let tensor = st.tensor(candle_name).map_err(|e| {
+            ExperaiError::Export(format!("Failed to read tensor {}: {}", candle_name, e))
+        })?;
 
         let dtype = safetensors_dtype_to_ggml(tensor.dtype())?;
         let shape: Vec<u64> = tensor.shape().iter().map(|&s| s as u64).collect();
@@ -238,27 +284,27 @@ pub fn export_to_gguf(
     }
 
     // Write the GGUF header and tensor info section
-    writer.write()
+    writer
+        .write()
         .map_err(|e| ExperaiError::Export(format!("Failed to write GGUF header: {}", e)))?;
 
     for (i, (_name, data, _shape, _dtype)) in tensor_data_map.iter().enumerate() {
-        writer.write_tensor_data(i, data)
+        writer
+            .write_tensor_data(i, data)
             .map_err(|e| ExperaiError::Export(format!("Failed to write tensor data: {}", e)))?;
     }
 
-    writer.finalize()
+    writer
+        .finalize()
         .map_err(|e| ExperaiError::Export(format!("Failed to finalize GGUF: {}", e)))?;
 
     // Copy model_config.json alongside the GGUF for runtime reference
     let config_dest = output_dir.join("model_config.json");
-    std::fs::copy(
-        checkpoint_dir.join("model_config.json"),
-        &config_dest,
-    )
-    .map_err(|e| {
+    std::fs::copy(checkpoint_dir.join("model_config.json"), &config_dest).map_err(|e| {
         ExperaiError::Export(format!(
             "Failed to copy model_config.json to {}: {}",
-            config_dest.display(), e
+            config_dest.display(),
+            e
         ))
     })?;
 

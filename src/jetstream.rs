@@ -432,8 +432,7 @@ fn parse_jetstream_message(
     // English language filter: only keep posts whose `langs` array includes "en"
     if commit.collection.as_deref() == Some("app.bsky.feed.post") {
         let langs = record.get("langs").and_then(|v| v.as_array());
-        let is_english =
-            langs.is_some_and(|arr| arr.iter().any(|l| l.as_str() == Some("en")));
+        let is_english = langs.is_some_and(|arr| arr.iter().any(|l| l.as_str() == Some("en")));
         if !is_english {
             trace!("Skipping non-English post from {}", did);
             return None;

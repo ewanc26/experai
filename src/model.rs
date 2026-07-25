@@ -1,5 +1,5 @@
 use crate::errors::ExperaiError;
-use candle_core::{Device, DType, Tensor};
+use candle_core::{DType, Device, Tensor};
 use candle_nn::{linear_no_bias, Dropout, Embedding, Linear, Module, VarBuilder, VarMap};
 use tracing::{debug, info, trace};
 
@@ -92,12 +92,20 @@ struct Mlp {
 pub fn build_model(config: &ModelConfig, vb: VarBuilder) -> Result<TransformerModel, ExperaiError> {
     info!(
         "Building model: vocab={}, hidden={}, layers={}, heads={}, intermediate={}, max_seq={}",
-        config.vocab_size, config.hidden_size, config.num_layers, config.num_heads, config.intermediate_size, config.max_seq_len
+        config.vocab_size,
+        config.hidden_size,
+        config.num_layers,
+        config.num_heads,
+        config.intermediate_size,
+        config.max_seq_len
     );
 
     let embedding =
         candle_nn::embedding(config.vocab_size, config.hidden_size, vb.pp("embedding"))?;
-    debug!("Created embedding: {}x{}", config.vocab_size, config.hidden_size);
+    debug!(
+        "Created embedding: {}x{}",
+        config.vocab_size, config.hidden_size
+    );
 
     let mut layers = Vec::with_capacity(config.num_layers);
     for i in 0..config.num_layers {
@@ -140,7 +148,11 @@ pub fn build_model(config: &ModelConfig, vb: VarBuilder) -> Result<TransformerMo
 /// - Attention projections (q/k/v/o): Xavier with scale `sqrt(2 / (hidden * 2))`.
 /// - MLP projections (gate/up/down): Xavier with scale `sqrt(2 / (hidden + intermediate))`.
 /// - RMSNorm weights: ones.
-pub fn init_weights(varmap: &VarMap, config: &ModelConfig, device: &Device) -> Result<(), ExperaiError> {
+pub fn init_weights(
+    varmap: &VarMap,
+    config: &ModelConfig,
+    device: &Device,
+) -> Result<(), ExperaiError> {
     let dtype = DType::F32;
     let h = config.hidden_size as f64;
     let inter = config.intermediate_size as f64;
@@ -151,7 +163,9 @@ pub fn init_weights(varmap: &VarMap, config: &ModelConfig, device: &Device) -> R
 
     let data = varmap.data();
     let tensor_data = data.lock().map_err(|e| {
-        ExperaiError::ModelLoad(format!("variable map lock was poisoned by another thread: {e}"))
+        ExperaiError::ModelLoad(format!(
+            "variable map lock was poisoned by another thread: {e}"
+        ))
     })?;
 
     for (name, var) in tensor_data.iter() {
@@ -164,13 +178,16 @@ pub fn init_weights(varmap: &VarMap, config: &ModelConfig, device: &Device) -> R
             // Embedding: normal with initializer_range
             Tensor::randn(0.0, std, &*shape, device)?
         } else if name.contains("self_attn")
-            && (name.contains("q_proj") || name.contains("k_proj")
-                || name.contains("v_proj") || name.contains("o_proj"))
+            && (name.contains("q_proj")
+                || name.contains("k_proj")
+                || name.contains("v_proj")
+                || name.contains("o_proj"))
         {
             // Attention projections: Xavier
             Tensor::randn(0.0, attn_scale, &*shape, device)?
         } else if name.contains("mlp")
-            && (name.contains("gate_proj") || name.contains("up_proj")
+            && (name.contains("gate_proj")
+                || name.contains("up_proj")
                 || name.contains("down_proj"))
         {
             // MLP projections: Xavier
@@ -186,7 +203,10 @@ pub fn init_weights(varmap: &VarMap, config: &ModelConfig, device: &Device) -> R
         var.set(&new_tensor)?;
     }
 
-    info!("Applied custom weight initialisation (initializer_range={})", config.initializer_range);
+    info!(
+        "Applied custom weight initialisation (initializer_range={})",
+        config.initializer_range
+    );
     Ok(())
 }
 
@@ -309,9 +329,7 @@ impl MultiHeadAttention {
 pub(crate) fn causal_mask(seq_len: usize, device: &Device) -> candle_core::Result<Tensor> {
     // Create an upper triangular mask of -inf
     let mask_vals: Vec<f32> = (0..seq_len)
-        .flat_map(|i| {
-            (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 })
-        })
+        .flat_map(|i| (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 }))
         .collect();
     let mask = Tensor::from_slice(&mask_vals, (seq_len, seq_len), device)?
         .unsqueeze(0)?
@@ -378,7 +396,10 @@ impl Module for TransformerModel {
         }
         h = self.norm.forward(&h)?;
         let logits = self.lm_head.forward(&h)?;
-        trace!("TransformerModel forward: output shape {:?}", logits.shape());
+        trace!(
+            "TransformerModel forward: output shape {:?}",
+            logits.shape()
+        );
         Ok(logits)
     }
 }
