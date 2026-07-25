@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, error, debug, warn};
+use tracing::{info, error, debug, warn, trace};
 
 use crate::data::{Dataset, DatasetSample};
 
@@ -208,6 +208,7 @@ fn build_jetstream_url(config: &JetstreamConfig) -> Result<String> {
         url.push_str(&params.join("&"));
     }
 
+    debug!("Built Jetstream URL: {}", url);
     Ok(url)
 }
 
@@ -344,10 +345,14 @@ fn parse_jetstream_message(
 ) -> Option<JetstreamPost> {
     let msg: JetstreamMessage = match serde_json::from_value(value.clone()) {
         Ok(m) => m,
-        Err(_) => return None,
+        Err(_) => {
+            trace!("Failed to deserialize Jetstream message");
+            return None;
+        }
     };
 
     if msg.kind.as_deref() != Some("commit") {
+        trace!("Skipping non-commit message: kind={:?}", msg.kind);
         return None;
     }
 
@@ -356,6 +361,7 @@ fn parse_jetstream_message(
 
     if let Some(col) = &commit.collection {
         if !wanted_collections.is_empty() && !wanted_collections.contains(col) {
+            trace!("Skipping collection '{}' (not in wanted list)", col);
             return None;
         }
     }
@@ -364,6 +370,7 @@ fn parse_jetstream_message(
 
     let text = record.get("text")?.as_str()?.trim().to_string();
     if text.is_empty() {
+        trace!("Skipping empty post from {}", did);
         return None;
     }
 
@@ -373,9 +380,12 @@ fn parse_jetstream_message(
             arr.iter().any(|l| l.as_str() == Some("en"))
         });
         if !is_english {
+            trace!("Skipping non-English post from {}", did);
             return None;
         }
     }
+
+    trace!("Accepted post from {} ({} chars)", did, text.len());
 
     let created_at = record
         .get("createdAt")
@@ -396,6 +406,7 @@ pub fn load_jetstream_dataset(
     tokenizer: tokenizers::Tokenizer,
     max_length: usize,
 ) -> Result<Dataset> {
+    info!("Loading Jetstream dataset from {} (max_length={})", path, max_length);
     Dataset::from_jsonl(path, tokenizer, max_length)
 }
 

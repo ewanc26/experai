@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use tokenizers::Tokenizer;
-use tracing::{info, warn};
+use tracing::{info, warn, debug, trace};
 
 use crate::at_protocol::{extract_text_from_value, ATProtocolClient};
 
@@ -25,6 +25,7 @@ pub struct Dataset {
 
 impl Dataset {
     pub fn from_jsonl(path: &str, tokenizer: Tokenizer, max_length: usize) -> Result<Self> {
+        info!("Loading dataset from JSONL: {} (max_length={})", path, max_length);
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let mut samples = Vec::new();
@@ -48,6 +49,8 @@ impl Dataset {
                 did: parsed.get("did").cloned(),
             });
         }
+
+        info!("Loaded {} samples from {}", samples.len(), path);
 
         Ok(Self {
             samples,
@@ -115,6 +118,7 @@ impl Dataset {
         let split_idx = (self.samples.len() as f64 * ratio) as usize;
         let train_samples = self.samples[..split_idx].to_vec();
         let val_samples = self.samples[split_idx..].to_vec();
+        debug!("Dataset split: {} train, {} val (ratio={})", train_samples.len(), val_samples.len(), ratio);
 
         (
             Self {
@@ -165,6 +169,8 @@ impl DataCollator {
             .unwrap_or(0)
             .min(self.max_length);
 
+        trace!("Collating {} samples, max_len={}", batch_size, max_len);
+
         let mut input_ids = Vec::with_capacity(batch_size * max_len);
         let mut attention_mask = Vec::with_capacity(batch_size * max_len);
 
@@ -192,12 +198,15 @@ impl DataCollator {
 }
 
 pub fn load_tokenizer(path: &str) -> Result<Tokenizer> {
+    info!("Loading tokenizer from {}", path);
     let tokenizer = Tokenizer::from_file(path)
         .map_err(|e| anyhow!("Failed to load tokenizer from {}: {}", path, e))?;
+    info!("Tokenizer loaded (vocab_size={})", tokenizer.get_vocab_size(true));
     Ok(tokenizer)
 }
 
 pub fn validate_dataset(dataset: &Dataset) -> Result<()> {
+    info!("Validating dataset: {} samples", dataset.len());
     let mut empty_count = 0;
     let mut duplicate_count = 0;
     let mut seen = std::collections::HashSet::new();
@@ -216,6 +225,10 @@ pub fn validate_dataset(dataset: &Dataset) -> Result<()> {
     }
     if duplicate_count > 0 {
         warn!("Found {} duplicate examples in dataset", duplicate_count);
+    }
+
+    if empty_count == 0 && duplicate_count == 0 {
+        info!("Dataset validation passed: no issues found");
     }
 
     Ok(())

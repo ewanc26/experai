@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use tokenizers::{Encoding, Tokenizer};
-use tracing::{event, Level};
+use tracing::{event, info, debug, Level};
 
 use crate::data::Dataset;
 
@@ -45,9 +45,14 @@ pub struct Preprocessor {
 
 impl Preprocessor {
     pub fn new(tokenizer: Tokenizer, config: Option<PreprocessConfig>) -> Self {
+        let config = config.unwrap_or_default();
+        info!(
+            "Creating preprocessor: clean={}, dedupe={}, min_len={}, max_len={}",
+            config.clean, config.dedupe, config.min_length, config.max_length
+        );
         Self {
             tokenizer,
-            config: config.unwrap_or_default(),
+            config,
         }
     }
 
@@ -93,6 +98,7 @@ impl Preprocessor {
     }
 
     pub fn preprocess_file(&self, input_path: &str, output_path: &str) -> Result<()> {
+        info!("Preprocessing file: {} -> {}", input_path, output_path);
         let input_file = File::open(input_path)?;
         let reader = BufReader::new(input_file);
         let mut output_file = File::create(output_path)?;
@@ -159,6 +165,7 @@ impl Preprocessor {
     }
 
     pub fn save_dataset_to_jsonl(&self, dataset: &Dataset, output_path: &str) -> Result<()> {
+        info!("Saving {} samples to {}", dataset.len(), output_path);
         let mut output_file = File::create(output_path)?;
         let mut seen_texts = if self.config.dedupe {
             Some(HashSet::new())
@@ -199,6 +206,7 @@ impl Preprocessor {
     }
 
     pub fn tokenize_batch(&self, texts: &[String]) -> Result<Vec<Encoding>> {
+        debug!("Tokenizing batch of {} texts", texts.len());
         let mut encodings = Vec::with_capacity(texts.len());
 
         for text in texts {

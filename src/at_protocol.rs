@@ -38,12 +38,14 @@ pub struct ATProtocolClient {
 
 impl ATProtocolClient {
     pub fn new(pds_url: &str) -> Self {
+        debug!("Creating AT Protocol client for PDS: {}", pds_url);
         let http_client = atrium_xrpc_client::reqwest::ReqwestClient::new(pds_url);
         let client = AtpServiceClient::new(http_client);
         Self { client }
     }
 
     pub async fn resolve_handle(&self, handle: &str) -> Result<String> {
+        info!("Resolving handle: {}", handle);
         let response = self
             .client
             .service
@@ -60,7 +62,9 @@ impl ATProtocolClient {
             .await
             .map_err(|e| anyhow!("Failed to resolve handle '{}': {}", handle, e))?;
 
-        Ok(response.did.to_string())
+        let did = response.did.to_string();
+        info!("Resolved handle '{}' -> DID: {}", handle, did);
+        Ok(did)
     }
 
     pub async fn list_records(
@@ -70,6 +74,7 @@ impl ATProtocolClient {
         limit: Option<u8>,
         cursor: Option<String>,
     ) -> Result<Vec<(String, String, serde_json::Value)>> {
+        debug!("Listing records: repo={}, collection={}, limit={:?}", repo, collection, limit);
         let params = ListRecordsParams {
             collection: collection
                 .parse()
@@ -105,6 +110,7 @@ impl ATProtocolClient {
             records.push((record.data.uri, cid, value));
         }
 
+        debug!("Listed {} records from collection '{}'", records.len(), collection);
         Ok(records)
     }
 
@@ -177,6 +183,7 @@ impl ATProtocolClient {
             }
         }
 
+        info!("Paginated list complete: {} total records from collection '{}'", all_records.len(), collection);
         Ok(all_records)
     }
 }
