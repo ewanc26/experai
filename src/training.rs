@@ -2,7 +2,7 @@ use anyhow::Result;
 use candle_core::{DType, Device, IndexOp, Tensor, D};
 use candle_nn::{AdamW, Module, Optimizer, VarBuilder, VarMap};
 use std::path::Path;
-use tracing::info;
+use tracing::{info, debug, trace};
 
 use crate::data::{DataCollator, Dataset};
 use crate::model::{build_model, ModelConfig, TransformerModel};
@@ -65,6 +65,10 @@ pub struct Trainer {
 
 impl Trainer {
     pub fn new(config: TrainingConfig, model_config: ModelConfig) -> Result<Self> {
+        info!(
+            "Creating trainer: lr={}, batch={}, grad_accum={}, epochs={}, precision={}, max_seq={}",
+            config.learning_rate, config.batch_size, config.gradient_accumulation_steps, config.epochs, config.precision, config.max_seq_len
+        );
         let device = utils::select_optimal_device().device.to_candle()?;
         let var_map = VarMap::new();
 
@@ -108,6 +112,7 @@ impl Trainer {
     }
 
     pub fn update_learning_rate(&mut self, new_lr: f64) -> Result<()> {
+        debug!("Updating learning rate: {:.6} -> {:.6}", self.current_lr, new_lr);
         self.optimizer = AdamW::new(
             self.var_map.all_vars(),
             candle_nn::ParamsAdamW {
@@ -123,6 +128,7 @@ impl Trainer {
     }
 
     pub fn validate(&self, dataset: &Dataset) -> Result<f64> {
+        debug!("Running validation on {} samples", dataset.len());
         let collator = DataCollator::new(
             self.model.config.pad_token_id as u32,
             self.config.max_seq_len,
@@ -150,6 +156,7 @@ impl Trainer {
         }
 
         let avg_loss = if count > 0 { total_loss / count as f64 } else { 0.0 };
+        debug!("Validation complete: avg_loss={:.4} ({} batches)", avg_loss, count);
         Ok(avg_loss)
     }
 
@@ -278,6 +285,7 @@ impl Trainer {
     fn compute_loss(&self, logits: &Tensor, labels: &Tensor) -> Result<Tensor> {
         let (batch, seq, _vocab) = logits.dims3()?;
         let vocab_size = logits.shape().dims().last().copied().unwrap_or(0);
+        trace!("compute_loss: logits={:?}, labels={:?}", logits.shape(), labels.shape());
 
         let log_probs = candle_nn::ops::log_softmax(logits, D::Minus1)?;
 
@@ -344,11 +352,13 @@ impl Trainer {
         let warmup = self.config.warmup_steps;
         let lr = self.config.learning_rate;
 
-        if step < warmup {
+        let scheduled = if step < warmup {
             lr * (step as f64 / warmup.max(1) as f64)
         } else {
             lr
-        }
+        };
+        trace!("LR schedule: step={}, warmup={}, lr={:.6}", step, warmup, scheduled);
+        scheduled
     }
 }
 

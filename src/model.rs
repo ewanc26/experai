@@ -1,6 +1,7 @@
 use anyhow::Result;
 use candle_core::{Device, Tensor};
 use candle_nn::{linear_no_bias, Dropout, Embedding, Linear, Module, VarBuilder};
+use tracing::{info, debug, trace};
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct ModelConfig {
@@ -69,18 +70,36 @@ struct Mlp {
 }
 
 pub fn build_model(config: &ModelConfig, vb: VarBuilder) -> Result<TransformerModel> {
+    info!(
+        "Building model: vocab={}, hidden={}, layers={}, heads={}, intermediate={}, max_seq={}",
+        config.vocab_size, config.hidden_size, config.num_layers, config.num_heads, config.intermediate_size, config.max_seq_len
+    );
+
     let embedding =
         candle_nn::embedding(config.vocab_size, config.hidden_size, vb.pp("embedding"))?;
+    debug!("Created embedding: {}x{}", config.vocab_size, config.hidden_size);
 
     let mut layers = Vec::with_capacity(config.num_layers);
     for i in 0..config.num_layers {
         let layer = TransformerLayer::new(config, vb.pp(format!("layers.{}", i)))?;
         layers.push(layer);
     }
+    debug!("Created {} transformer layers", config.num_layers);
 
     let norm = candle_nn::rms_norm(config.hidden_size, config.layer_norm_eps, vb.pp("norm"))?;
     let lm_head = linear_no_bias(config.hidden_size, config.vocab_size, vb.pp("lm_head"))?;
     let dropout = Dropout::new(0.1);
+
+    let head_dim = config.hidden_size / config.num_heads;
+    let params = (config.hidden_size * config.vocab_size)
+        + config.num_layers * (4 * config.hidden_size * config.hidden_size + 4 * config.hidden_size + 2 * config.intermediate_size * config.hidden_size)
+        + config.hidden_size * config.vocab_size;
+    info!(
+        "Model built: {} params ({:.1}M), head_dim={}",
+        params,
+        params as f64 / 1e6,
+        head_dim
+    );
 
     Ok(TransformerModel {
         config: config.clone(),
@@ -95,6 +114,7 @@ pub fn build_model(config: &ModelConfig, vb: VarBuilder) -> Result<TransformerMo
 impl TransformerLayer {
     fn new(config: &ModelConfig, vb: VarBuilder) -> Result<Self> {
         let head_dim = config.hidden_size / config.num_heads;
+        trace!("Creating transformer layer: head_dim={}", head_dim);
         let self_attn = MultiHeadAttention::new(config, head_dim, vb.pp("self_attn"))?;
         let mlp = Mlp::new(config, vb.pp("mlp"))?;
         let input_layernorm = candle_nn::rms_norm(
@@ -150,6 +170,7 @@ impl MultiHeadAttention {
 
     fn forward(&self, x: &Tensor) -> candle_core::Result<Tensor> {
         let (batch_size, seq_len, hidden_size) = x.dims3()?;
+        trace!("Attention forward: input shape {:?}", x.shape());
         let q = self.q_proj.forward(x)?;
         let k = self.k_proj.forward(x)?;
         let v = self.v_proj.forward(x)?;
@@ -203,6 +224,7 @@ pub(crate) fn causal_mask(seq_len: usize, device: &Device) -> candle_core::Resul
 
 impl Mlp {
     fn new(config: &ModelConfig, vb: VarBuilder) -> Result<Self> {
+        trace!("Creating MLP: hidden={}, intermediate={}", config.hidden_size, config.intermediate_size);
         let gate_proj = linear_no_bias(
             config.hidden_size,
             config.intermediate_size,
@@ -240,13 +262,16 @@ impl Module for Mlp {
 
 impl Module for TransformerModel {
     fn forward(&self, x: &Tensor) -> candle_core::Result<Tensor> {
+        trace!("TransformerModel forward: input shape {:?}", x.shape());
         let mut h = self.embedding.forward(x)?;
         h = self.dropout.forward(&h, false)?;
-        for layer in &self.layers {
+        for (i, layer) in self.layers.iter().enumerate() {
             h = layer.forward(&h)?;
+            trace!("Layer {} output shape: {:?}", i, h.shape());
         }
         h = self.norm.forward(&h)?;
         let logits = self.lm_head.forward(&h)?;
+        trace!("TransformerModel forward: output shape {:?}", logits.shape());
         Ok(logits)
     }
 }

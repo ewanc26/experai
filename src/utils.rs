@@ -3,7 +3,7 @@ use candle_core::Tensor;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
-use tracing::{event, Level};
+use tracing::{event, info, debug, Level};
 
 /// Device selection for compute. Maps to candle_core::Device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,6 +187,7 @@ pub fn detect_gpus() -> Vec<GpuInfo> {
 pub fn select_optimal_device() -> DeviceSelection {
     // Check for explicit override first
     if let Ok(env_device) = std::env::var("EXPERAI_DEVICE") {
+        info!("EXPERAI_DEVICE override set: {}", env_device);
         let device = match env_device.as_str() {
             x if x.starts_with("cuda:") => {
                 let idx = x[5..].parse().unwrap_or(0);
@@ -217,6 +218,10 @@ pub fn select_optimal_device() -> DeviceSelection {
         .unwrap_or(DeviceSelectionStrategy::Auto);
 
     let gpus = detect_gpus();
+    debug!("Detected {} GPU(s)", gpus.len());
+    for gpu in &gpus {
+        debug!("  GPU: {} ({} MB, {:?})", gpu.name, gpu.vram_mb, gpu.kind);
+    }
     
     let result = match strategy {
         DeviceSelectionStrategy::ForceCpu => DeviceSelection {
@@ -302,6 +307,13 @@ pub fn select_optimal_device() -> DeviceSelection {
             }
         },
     };
+
+    info!(
+        "Device selection: {:?} (gpu_detected={}, reason={})",
+        result.device,
+        result.gpu_detected,
+        result.fallback_reason.as_deref().unwrap_or("none")
+    );
 
     result
 }
@@ -393,6 +405,7 @@ impl SystemLoadMonitor {
         self.config.max_cpu_load
     }
     pub fn new(config: SystemLoadConfig) -> Self {
+        debug!("Initializing system load monitor: max_cpu_load={:.0}%, check_interval={}", config.max_cpu_load * 100.0, config.check_interval_batches);
         let mut system =
             System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
         system.refresh_cpu();
@@ -449,6 +462,7 @@ impl Default for HardwareProfile {
 
 impl HardwareProfile {
     pub fn detect() -> Self {
+        info!("Detecting hardware profile...");
         let mut system = System::new_all();
         system.refresh_all();
         std::thread::sleep(std::time::Duration::from_millis(200));
@@ -465,13 +479,24 @@ impl HardwareProfile {
             (None, None, None)
         };
 
-        Self {
+        let profile = Self {
             cpu_cores,
             total_ram_mb,
             gpu_vram_mb,
             gpu_kind,
             gpu_name,
-        }
+        };
+
+        info!(
+            "Hardware profile: cpu_cores={}, ram={}MB, gpu={:?}, gpu_vram={}MB, tier={}",
+            profile.cpu_cores,
+            profile.total_ram_mb,
+            profile.gpu_kind,
+            profile.gpu_vram_mb.unwrap_or(0),
+            profile.memory_tier()
+        );
+
+        profile
     }
 
     pub fn has_gpu(&self) -> bool {
@@ -537,7 +562,7 @@ pub struct AutoTuner;
 impl AutoTuner {
     pub fn recommend(profile: &HardwareProfile) -> AutoTuneConfig {
         let gpu_vram = profile.gpu_vram_mb.unwrap_or(0);
-        if gpu_vram >= 12000 {
+        let config = if gpu_vram >= 12000 {
             Self::for_gpu("medium")
         } else if gpu_vram >= 6000 {
             Self::for_gpu("small")
@@ -547,7 +572,14 @@ impl AutoTuner {
             Self::for_cpu("small")
         } else {
             Self::for_cpu("tiny")
-        }
+        };
+
+        info!(
+            "Auto-tune recommendation: tier={}, batch={}, grad_accum={}, precision={}, lr={}, max_seq={}",
+            config.tier, config.batch_size, config.gradient_accumulation_steps, config.precision, config.learning_rate, config.max_seq_len
+        );
+
+        config
     }
 
     fn for_cpu(tier: &'static str) -> AutoTuneConfig {

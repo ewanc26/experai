@@ -9,7 +9,7 @@ use experai::model::ModelConfig;
 use experai::preprocessing::Preprocessor;
 use experai::training::{Trainer, TrainingConfig};
 use experai::utils;
-use tracing::{info, warn};
+use tracing::{info, warn, debug};
 
 #[derive(Parser)]
 #[command(name = "experai")]
@@ -362,8 +362,12 @@ fn main() -> Result<()> {
             info!("Prompt tokenised to {} tokens", input_ids.len());
 
             // Generate tokens
+            info!(
+                "Generating: max_tokens={}, temp={}, top_k={}, top_p={}",
+                max_tokens, temperature, top_k, top_p
+            );
             let mut generated = input_ids.clone();
-            for _ in 0..max_tokens {
+            for step in 0..max_tokens {
                 let input_tensor =
                     candle_core::Tensor::new(generated.clone(), &device)?.unsqueeze(0)?;
 
@@ -379,9 +383,13 @@ fn main() -> Result<()> {
 
                 generated.push(next_token as u32);
 
+                if step % 10 == 0 {
+                    debug!("Generation step {}/{}: token_id={}", step + 1, max_tokens, next_token);
+                }
+
                 // Stop on EOS
                 if next_token == model_config.eos_token_id {
-                    info!("Generated EOS token, stopping");
+                    info!("Generated EOS token at step {}, stopping", step + 1);
                     break;
                 }
             }
