@@ -56,11 +56,7 @@ impl Trainer {
         )?;
 
         let load_monitor = if config.enable_load_monitoring {
-            let load_config = SystemLoadConfig {
-                max_cpu_load: config.max_cpu_load,
-                check_interval_batches: config.load_check_interval,
-                reduction_factor: 0.5,
-            };
+            let load_config = SystemLoadConfig::default();
             Some(SystemLoadMonitor::new(load_config))
         } else {
             None
@@ -148,10 +144,10 @@ impl Trainer {
         let total_steps = self.config.epochs * (dataset.len() / self.config.batch_size).max(1);
         let mut grad_accum = GradientAccumulator::new(self.config.gradient_accumulation_steps);
 
-        if let Some(ref mut monitor) = self.load_monitor {
+        if let Some(ref monitor) = self.load_monitor {
             info!(
-                "System load monitoring enabled. Max CPU load: {:.0}%",
-                monitor.max_load() * 100.0
+                "System load monitoring enabled. Check every {} steps.",
+                monitor.check_interval()
             );
         }
 
@@ -170,26 +166,22 @@ impl Trainer {
                     continue;
                 }
 
-                // --- Dynamic batch scaling: shrink the batch when CPU load is high ---
+                // --- Dynamic scaling: poll system load and adjust batch / LR ---
                 if let Some(ref mut monitor) = self.load_monitor {
-                    if self.global_step.is_multiple_of(self.config.load_check_interval) {
-                        let cpu_load = monitor.current_load();
-                        let scale = monitor.recommended_batch_scale();
-                        dynamic_batch_size = ((base_batch_size as f32 * scale) as usize).max(1);
-                        if (dynamic_batch_size as f32 / base_batch_size as f32) < 0.9 {
-                            info!(
-                                "[load-adapt] CPU load: {:.0}% | batch scaled to {}/{}",
-                                cpu_load * 100.0,
-                                dynamic_batch_size,
-                                base_batch_size
-                            );
-                        } else {
-                            info!(
-                                "[load-adapt] CPU load: {:.0}% | batch size: {} (ok)",
-                                cpu_load * 100.0,
-                                dynamic_batch_size
-                            );
+                    if self.global_step > 0 && self.global_step.is_multiple_of(monitor.check_interval()) {
+                        let rec = monitor.poll();
+                        dynamic_batch_size = ((base_batch_size as f32 * rec.batch_scale) as usize).max(1);
+
+                        // Adjust LR if the monitor suggests it.
+                        let target_lr = self.config.learning_rate * rec.lr_scale as f64;
+                        if (target_lr - self.current_lr).abs() > 1e-12 {
+                            self.update_learning_rate(target_lr)?;
                         }
+
+                        info!(
+                            "[load-adapt] {} | batch {}/{} | lr {:.6}",
+                            rec.reason, dynamic_batch_size, base_batch_size, self.current_lr
+                        );
                     }
                 }
 

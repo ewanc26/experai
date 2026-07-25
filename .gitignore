@@ -30,3 +30,4 @@ outputs/
 checkpoints/
 wandb/
 mlruns/
+output/
