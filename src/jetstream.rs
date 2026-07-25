@@ -1,11 +1,13 @@
 use anyhow::{Result, anyhow};
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, error, debug};
+use tracing::{info, error, debug, warn};
 
 use crate::data::{Dataset, DatasetSample};
 
@@ -37,7 +39,7 @@ impl Default for JetstreamConfig {
             max_samples: 10000,
             batch_size: 100,
             max_duration_secs: 3600, // 1 hour
-            compression: true,
+            compression: false,
         }
     }
 }
@@ -88,9 +90,7 @@ pub async fn collect_from_jetstream(
 
     tokio::spawn(async move {
         match run_websocket_consumer(&config_for_consumer, tx.clone(), cancel_clone.clone()).await {
-            Ok(()) => {
-                info!("WebSocket consumer finished gracefully");
-            }
+            Ok(()) => {}
             Err(e) => {
                 error!("WebSocket consumer error: {}", e);
             }
@@ -103,6 +103,7 @@ pub async fn collect_from_jetstream(
     let timeout = Duration::from_secs(config.max_duration_secs);
     let dids_filter = config.dids.clone();
 
+    let mut tick_count: u64 = 0;
     loop {
         if posts.len() >= config.max_samples {
             info!("Reached max samples limit: {}", config.max_samples);
@@ -135,9 +136,9 @@ pub async fn collect_from_jetstream(
                     filtered.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                // Periodic check - loop continues
-                debug!("Tick: {} posts collected", posts.len());
+            _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                tick_count += 1;
+                info!("Tick #{}: {:.0}s elapsed, {} posts collected", tick_count, start.elapsed().as_secs_f64(), posts.len());
             }
         }
     }
@@ -218,44 +219,175 @@ fn should_include_post(post: &JetstreamPost, dids: &[String]) -> bool {
     dids.iter().any(|d| d == &post.did)
 }
 
-/// Run the WebSocket consumer (simplified - in production use atproto-jetstream crate)
+/// Run the WebSocket consumer (real implementation using tokio-tungstenite)
 async fn run_websocket_consumer(
     config: &JetstreamConfig,
-    _tx: mpsc::Sender<JetstreamPost>,
+    tx: mpsc::Sender<JetstreamPost>,
     cancel_token: CancellationToken,
 ) -> Result<()> {
     let url = build_jetstream_url(config)?;
+    info!("Connecting to Jetstream: {}", url);
 
-    // For now, use a simple HTTP-based fallback since WebSocket setup can vary
-    // In production, use the atproto-jetstream crate directly
-    info!("Would connect to: {} (WebSocket consumer placeholder)", url);
-    info!("Using REST API fallback for data collection");
+    loop {
+        if cancel_token.is_cancelled() {
+            info!("Consumer cancelled before connecting");
+            break;
+        }
 
-    // Simulate receiving events for demonstration
-    // In real implementation, this would be the WebSocket loop
-    let mut interval = tokio::time::interval(Duration::from_millis(100));
-    let mut count = 0;
+        match connect_and_stream(&url, &tx, &cancel_token, &config.collections, &config.dids).await {
+            Ok(()) => {
+                info!("WebSocket stream ended gracefully");
+                break;
+            }
+            Err(e) => {
+                warn!("Jetstream connection error: {}", e);
+                if cancel_token.is_cancelled() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn connect_and_stream(
+    url: &str,
+    tx: &mpsc::Sender<JetstreamPost>,
+    cancel_token: &CancellationToken,
+    wanted_collections: &[String],
+    dids_filter: &[String],
+) -> Result<()> {
+    let (ws_stream, _) = tokio_tungstenite::connect_async(url).await?;
+    info!("WebSocket connected to Jetstream");
+
+    let (mut write, mut read) = ws_stream.split();
+    let mut msg_count: u64 = 0;
+    let mut parsed_count: u64 = 0;
+    let mut sent_count: u64 = 0;
 
     loop {
         tokio::select! {
-            _ = interval.tick() => {
-                count += 1;
-                // Placeholder: In real code, parse incoming WebSocket messages
-                debug!("Received event {}", count);
-
-                if cancel_token.is_cancelled() {
-                    info!("Consumer cancelled");
-                    break;
+            msg = read.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        msg_count += 1;
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if let Some(post) = parse_jetstream_message(&json, wanted_collections) {
+                                parsed_count += 1;
+                                if should_include_post(&post, dids_filter) {
+                                    if tx.send(post).await.is_err() {
+                                        break;
+                                    }
+                                    sent_count += 1;
+                                }
+                            }
+                        }
+                        if msg_count.is_multiple_of(500) {
+                            debug!("Stats: {} received, {} parsed, {} sent", msg_count, parsed_count, sent_count);
+                        }
+                    }
+                    Some(Ok(Message::Binary(_))) => {
+                        msg_count += 1;
+                    }
+                    Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) | Some(Ok(Message::Frame(_))) => {}
+                    Some(Ok(Message::Close(_))) => {
+                        info!("WebSocket closed by server: {} received, {} parsed, {} sent", msg_count, parsed_count, sent_count);
+                        break;
+                    }
+                    Some(Err(e)) => {
+                        return Err(anyhow!("WebSocket error: {}", e));
+                    }
+                    None => {
+                        info!("WebSocket stream ended: {} received, {} parsed, {} sent", msg_count, parsed_count, sent_count);
+                        break;
+                    }
                 }
             }
             _ = cancel_token.cancelled() => {
-                info!("Consumer received cancellation");
+                info!("Consumer cancelled: {} received, {} parsed, {} sent", msg_count, parsed_count, sent_count);
+                let _ = write.close().await;
                 break;
             }
         }
     }
 
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct JetstreamCommit {
+    #[serde(rename = "collection")]
+    collection: Option<String>,
+    #[serde(rename = "rkey")]
+    rkey: Option<String>,
+    #[serde(rename = "record")]
+    record: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct JetstreamMessage {
+    #[serde(rename = "did")]
+    did: Option<String>,
+    #[serde(rename = "kind")]
+    kind: Option<String>,
+    #[serde(rename = "commit")]
+    commit: Option<JetstreamCommit>,
+    #[serde(rename = "time")]
+    _time: Option<String>,
+}
+
+fn parse_jetstream_message(
+    value: &serde_json::Value,
+    wanted_collections: &[String],
+) -> Option<JetstreamPost> {
+    let msg: JetstreamMessage = match serde_json::from_value(value.clone()) {
+        Ok(m) => m,
+        Err(_) => return None,
+    };
+
+    if msg.kind.as_deref() != Some("commit") {
+        return None;
+    }
+
+    let did = msg.did?;
+    let commit = msg.commit?;
+
+    if let Some(col) = &commit.collection {
+        if !wanted_collections.is_empty() && !wanted_collections.contains(col) {
+            return None;
+        }
+    }
+
+    let record = commit.record?;
+
+    let text = record.get("text")?.as_str()?.trim().to_string();
+    if text.is_empty() {
+        return None;
+    }
+
+    if commit.collection.as_deref() == Some("app.bsky.feed.post") {
+        let langs = record.get("langs").and_then(|v| v.as_array());
+        let is_english = langs.is_some_and(|arr| {
+            arr.iter().any(|l| l.as_str() == Some("en"))
+        });
+        if !is_english {
+            return None;
+        }
+    }
+
+    let created_at = record
+        .get("createdAt")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Some(JetstreamPost {
+        did,
+        text,
+        created_at,
+        rkey: commit.rkey,
+    })
 }
 
 /// Create a Dataset from saved Jetstream posts (JSONL file)

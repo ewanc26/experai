@@ -507,7 +507,7 @@ fn main() -> Result<()> {
                 max_samples,
                 batch_size: 100,
                 max_duration_secs,
-                compression: true,
+                compression: false,
             };
 
             // Collect data from Jetstream
