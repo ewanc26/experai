@@ -1,29 +1,35 @@
 use anyhow::{anyhow, Result};
-use candle_core::Tensor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use tokenizers::Tokenizer;
-use tracing::{info, warn, debug, trace};
+use tracing::{info, warn, debug};
 
 use crate::at_protocol::{extract_text_from_value, ATProtocolClient};
 
+/// A single tokenized training sample with optional metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetSample {
     pub text: String,
     pub tokens: Vec<u32>,
+    /// Optional classification label (e.g., "at_protocol" for Bluesky posts).
     pub label: Option<String>,
+    /// AT Protocol DID of the content author, when sourced from the social graph.
     pub did: Option<String>,
 }
 
+/// In-memory dataset holding tokenized samples and the tokenizer used to produce them.
 pub struct Dataset {
     pub samples: Vec<DatasetSample>,
     pub tokenizer: Tokenizer,
+    /// Maximum token length; longer sequences are truncated during collation.
     pub max_length: usize,
 }
 
 impl Dataset {
+    /// Load a dataset from a JSONL file. Each line must contain a `"text"` field;
+    /// optional `"label"` and `"did"` fields are captured if present.
     pub fn from_jsonl(path: &str, tokenizer: Tokenizer, max_length: usize) -> Result<Self> {
         info!("Loading dataset from JSONL: {} (max_length={})", path, max_length);
         let file = File::open(path)?;
@@ -59,6 +65,9 @@ impl Dataset {
         })
     }
 
+    /// Fetch posts from an AT Protocol PDS and build a dataset.
+    /// Resolves the handle to a DID, paginates through `app.bsky.feed.post` records,
+    /// and tokenizes each post's text.
     pub async fn from_at_protocol(
         pds_url: &str,
         handle: &str,
@@ -114,6 +123,8 @@ impl Dataset {
         })
     }
 
+    /// Split the dataset into (train, validation) by the given ratio.
+    /// `ratio` is the fraction of samples assigned to the training set.
     pub fn split(&self, ratio: f64) -> (Self, Self) {
         let split_idx = (self.samples.len() as f64 * ratio) as usize;
         let train_samples = self.samples[..split_idx].to_vec();
@@ -143,93 +154,7 @@ impl Dataset {
     }
 }
 
+/// Convenience wrapper that splits a dataset into train/val subsets.
 pub fn split_train_val(dataset: &Dataset, ratio: f64) -> (Dataset, Dataset) {
     dataset.split(ratio)
-}
-
-pub struct DataCollator {
-    pub pad_token_id: u32,
-    pub max_length: usize,
-}
-
-impl DataCollator {
-    pub fn new(pad_token_id: u32, max_length: usize) -> Self {
-        Self {
-            pad_token_id,
-            max_length,
-        }
-    }
-
-    pub fn collate(&self, samples: &[DatasetSample]) -> Result<(Tensor, Tensor)> {
-        let batch_size = samples.len();
-        let max_len = samples
-            .iter()
-            .map(|s| s.tokens.len())
-            .max()
-            .unwrap_or(0)
-            .min(self.max_length);
-
-        trace!("Collating {} samples, max_len={}", batch_size, max_len);
-
-        let mut input_ids = Vec::with_capacity(batch_size * max_len);
-        let mut attention_mask = Vec::with_capacity(batch_size * max_len);
-
-        for sample in samples {
-            let tokens = &sample.tokens;
-            let seq_len = tokens.len().min(max_len);
-
-            for &token in tokens.iter().take(seq_len) {
-                input_ids.push(token);
-                attention_mask.push(1u32);
-            }
-            for _ in seq_len..max_len {
-                input_ids.push(self.pad_token_id);
-                attention_mask.push(0u32);
-            }
-        }
-
-        let input_tensor =
-            Tensor::new(input_ids, &candle_core::Device::Cpu)?.reshape((batch_size, max_len))?;
-        let mask_tensor = Tensor::new(attention_mask, &candle_core::Device::Cpu)?
-            .reshape((batch_size, max_len))?;
-
-        Ok((input_tensor, mask_tensor))
-    }
-}
-
-pub fn load_tokenizer(path: &str) -> Result<Tokenizer> {
-    info!("Loading tokenizer from {}", path);
-    let tokenizer = Tokenizer::from_file(path)
-        .map_err(|e| anyhow!("Failed to load tokenizer from {}: {}", path, e))?;
-    info!("Tokenizer loaded (vocab_size={})", tokenizer.get_vocab_size(true));
-    Ok(tokenizer)
-}
-
-pub fn validate_dataset(dataset: &Dataset) -> Result<()> {
-    info!("Validating dataset: {} samples", dataset.len());
-    let mut empty_count = 0;
-    let mut duplicate_count = 0;
-    let mut seen = std::collections::HashSet::new();
-
-    for sample in &dataset.samples {
-        if sample.tokens.is_empty() {
-            empty_count += 1;
-        }
-        if !seen.insert(sample.text.clone()) {
-            duplicate_count += 1;
-        }
-    }
-
-    if empty_count > 0 {
-        warn!("Found {} empty sequences in dataset", empty_count);
-    }
-    if duplicate_count > 0 {
-        warn!("Found {} duplicate examples in dataset", duplicate_count);
-    }
-
-    if empty_count == 0 && duplicate_count == 0 {
-        info!("Dataset validation passed: no issues found");
-    }
-
-    Ok(())
 }
