@@ -1,5 +1,5 @@
 {
-  "best_loss": -12.801686981201172,
+  "best_loss": -22.70917949523926,
   "config": {
     "batch_size": 16,
     "data_path": "output/continuous/jetstream_data.jsonl",
@@ -18,5 +18,5 @@
     "warmup_steps": 300,
     "weight_decay": 0.01
   },
-  "global_step": 625
+  "global_step": 1875
 }

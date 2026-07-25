@@ -839,3 +839,215 @@
 {"timestamp":"2026-07-25T03:03:27.817761Z","level":"INFO","fields":{"message":"Step 1248 | Loss: -18.9707 | gradient accumulation cycle complete"},"target":"experai::training"}
 {"timestamp":"2026-07-25T03:03:28.891359Z","level":"INFO","fields":{"message":"Step 1250 | Loss: -16.6625 | LR: 0.000030"},"target":"experai::training"}
 {"timestamp":"2026-07-25T03:03:28.891447Z","level":"INFO","fields":{"message":"Epoch 2 avg train loss: -17.0948"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:07:57.438112Z","level":"INFO","fields":{"message":"Epoch 2 avg val loss: -19.7172 | perplexity: 0.0000"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:07:58.113907Z","level":"INFO","fields":{"message":"Saved checkpoint to output/continuous/best"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:07:58.113954Z","level":"INFO","fields":{"message":"New best train loss: -17.0948, saved checkpoint"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:07:58.113961Z","level":"INFO","fields":{"message":"Epoch 3/3"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:07:58.114519Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 24% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:02.046751Z","level":"INFO","fields":{"message":"Step 1256 | Loss: -18.3220 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:05.625955Z","level":"INFO","fields":{"message":"Step 1260 | Loss: -19.1329 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:05.626092Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 12% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:08.077340Z","level":"INFO","fields":{"message":"Step 1264 | Loss: -21.8777 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:11.872810Z","level":"INFO","fields":{"message":"Step 1270 | Loss: -19.1875 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:11.872968Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 14% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:13.165227Z","level":"INFO","fields":{"message":"Step 1272 | Loss: -22.8805 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:20.273826Z","level":"INFO","fields":{"message":"Step 1280 | Loss: -18.7113 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:20.274145Z","level":"INFO","fields":{"message":"Step 1280 | Loss: -18.7113 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:20.274182Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:27.258924Z","level":"INFO","fields":{"message":"Step 1288 | Loss: -18.1567 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:28.703136Z","level":"INFO","fields":{"message":"Step 1290 | Loss: -19.1710 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:28.703328Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 18% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:33.275179Z","level":"INFO","fields":{"message":"Step 1296 | Loss: -19.3881 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:35.802514Z","level":"INFO","fields":{"message":"Step 1300 | Loss: -19.1623 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:35.802653Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 17% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:50.312776Z","level":"INFO","fields":{"message":"Step 1304 | Loss: -20.2594 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:54.106636Z","level":"INFO","fields":{"message":"Step 1310 | Loss: -19.7118 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:54.106848Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 27% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:08:55.728864Z","level":"INFO","fields":{"message":"Step 1312 | Loss: -18.7335 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:00.648979Z","level":"INFO","fields":{"message":"Step 1320 | Loss: -20.6366 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:00.649067Z","level":"INFO","fields":{"message":"Step 1320 | Loss: -20.6366 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:00.649131Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 14% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:05.893442Z","level":"INFO","fields":{"message":"Step 1328 | Loss: -21.3403 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:07.048688Z","level":"INFO","fields":{"message":"Step 1330 | Loss: -20.3666 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:07.048796Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 16% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:10.460753Z","level":"INFO","fields":{"message":"Step 1336 | Loss: -21.8997 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:13.457181Z","level":"INFO","fields":{"message":"Step 1340 | Loss: -21.3373 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:13.457376Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 14% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:15.978164Z","level":"INFO","fields":{"message":"Step 1344 | Loss: -19.7231 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:21.069421Z","level":"INFO","fields":{"message":"Step 1350 | Loss: -25.6918 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:21.070058Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 16% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:22.783527Z","level":"INFO","fields":{"message":"Step 1352 | Loss: -20.8031 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:28.437093Z","level":"INFO","fields":{"message":"Step 1360 | Loss: -21.0834 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:28.437225Z","level":"INFO","fields":{"message":"Step 1360 | Loss: -21.0834 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:28.437313Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 16% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:34.198357Z","level":"INFO","fields":{"message":"Step 1368 | Loss: -19.0972 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:35.446308Z","level":"INFO","fields":{"message":"Step 1370 | Loss: -21.1087 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:35.446461Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 16% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:40.051015Z","level":"INFO","fields":{"message":"Step 1376 | Loss: -21.9136 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:42.583881Z","level":"INFO","fields":{"message":"Step 1380 | Loss: -18.3866 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:42.584005Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 14% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:45.279301Z","level":"INFO","fields":{"message":"Step 1384 | Loss: -24.3444 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:49.445000Z","level":"INFO","fields":{"message":"Step 1390 | Loss: -25.5726 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:49.445105Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 17% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:50.879460Z","level":"INFO","fields":{"message":"Step 1392 | Loss: -20.0763 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:56.706974Z","level":"INFO","fields":{"message":"Step 1400 | Loss: -21.5560 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:56.707022Z","level":"INFO","fields":{"message":"Step 1400 | Loss: -21.5560 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:09:56.707057Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 14% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:01.438545Z","level":"INFO","fields":{"message":"Step 1408 | Loss: -22.1357 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:02.794302Z","level":"INFO","fields":{"message":"Step 1410 | Loss: -21.0077 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:02.794501Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 17% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:06.862894Z","level":"INFO","fields":{"message":"Step 1416 | Loss: -21.6120 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:09.396540Z","level":"INFO","fields":{"message":"Step 1420 | Loss: -19.9882 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:09.396611Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:11.787893Z","level":"INFO","fields":{"message":"Step 1424 | Loss: -22.2747 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:16.338199Z","level":"INFO","fields":{"message":"Step 1430 | Loss: -16.4601 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:16.338363Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:17.157525Z","level":"INFO","fields":{"message":"Step 1432 | Loss: -20.8681 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:24.938465Z","level":"INFO","fields":{"message":"Step 1440 | Loss: -22.1540 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:24.940295Z","level":"INFO","fields":{"message":"Step 1440 | Loss: -22.1540 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:24.940349Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 25% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:29.392440Z","level":"INFO","fields":{"message":"Step 1448 | Loss: -22.4646 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:30.853213Z","level":"INFO","fields":{"message":"Step 1450 | Loss: -21.1206 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:30.853368Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 17% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:34.520713Z","level":"INFO","fields":{"message":"Step 1456 | Loss: -20.4780 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:36.924713Z","level":"INFO","fields":{"message":"Step 1460 | Loss: -22.5237 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:36.924781Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 14% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:39.292890Z","level":"INFO","fields":{"message":"Step 1464 | Loss: -22.7148 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:42.903537Z","level":"INFO","fields":{"message":"Step 1470 | Loss: -21.7587 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:42.903695Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 21% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:44.249369Z","level":"INFO","fields":{"message":"Step 1472 | Loss: -22.9345 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:49.126440Z","level":"INFO","fields":{"message":"Step 1480 | Loss: -21.3698 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:49.126524Z","level":"INFO","fields":{"message":"Step 1480 | Loss: -21.3698 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:49.126592Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 20% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:54.629558Z","level":"INFO","fields":{"message":"Step 1488 | Loss: -22.8092 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:55.847149Z","level":"INFO","fields":{"message":"Step 1490 | Loss: -20.9594 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:10:55.847325Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:00.206727Z","level":"INFO","fields":{"message":"Step 1496 | Loss: -19.5622 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:03.871579Z","level":"INFO","fields":{"message":"Step 1500 | Loss: -21.0846 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:03.871711Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 18% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:06.298909Z","level":"INFO","fields":{"message":"Step 1504 | Loss: -21.0511 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:11.061261Z","level":"INFO","fields":{"message":"Step 1510 | Loss: -22.2327 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:11.061341Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:12.571313Z","level":"INFO","fields":{"message":"Step 1512 | Loss: -23.0938 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:19.470542Z","level":"INFO","fields":{"message":"Step 1520 | Loss: -22.0911 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:19.470675Z","level":"INFO","fields":{"message":"Step 1520 | Loss: -22.0911 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:19.470780Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 16% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:25.662035Z","level":"INFO","fields":{"message":"Step 1528 | Loss: -22.2513 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:27.366133Z","level":"INFO","fields":{"message":"Step 1530 | Loss: -23.7016 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:27.366241Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 21% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:31.521980Z","level":"INFO","fields":{"message":"Step 1536 | Loss: -21.0212 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:34.254121Z","level":"INFO","fields":{"message":"Step 1540 | Loss: -20.9676 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:34.254202Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 16% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:37.465504Z","level":"INFO","fields":{"message":"Step 1544 | Loss: -22.2597 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:42.030729Z","level":"INFO","fields":{"message":"Step 1550 | Loss: -22.7216 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:42.030901Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:43.670084Z","level":"INFO","fields":{"message":"Step 1552 | Loss: -24.9027 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:49.861345Z","level":"INFO","fields":{"message":"Step 1560 | Loss: -24.2496 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:49.861476Z","level":"INFO","fields":{"message":"Step 1560 | Loss: -24.2496 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:49.861562Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 20% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:57.339232Z","level":"INFO","fields":{"message":"Step 1568 | Loss: -23.8544 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:58.668290Z","level":"INFO","fields":{"message":"Step 1570 | Loss: -21.7411 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:11:58.668372Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 17% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:10.646319Z","level":"INFO","fields":{"message":"Step 1576 | Loss: -32.1974 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:14.762087Z","level":"INFO","fields":{"message":"Step 1580 | Loss: -23.4847 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:14.762177Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 26% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:17.400156Z","level":"INFO","fields":{"message":"Step 1584 | Loss: -22.7004 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:20.740945Z","level":"INFO","fields":{"message":"Step 1590 | Loss: -21.7938 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:20.741065Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 18% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:22.050501Z","level":"INFO","fields":{"message":"Step 1592 | Loss: -19.2482 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:27.371571Z","level":"INFO","fields":{"message":"Step 1600 | Loss: -27.4892 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:27.371622Z","level":"INFO","fields":{"message":"Step 1600 | Loss: -27.4892 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:27.371655Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:34.457833Z","level":"INFO","fields":{"message":"Step 1608 | Loss: -24.6892 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:36.537781Z","level":"INFO","fields":{"message":"Step 1610 | Loss: -27.7280 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:36.537852Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:42.408084Z","level":"INFO","fields":{"message":"Step 1616 | Loss: -27.4715 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:45.023588Z","level":"INFO","fields":{"message":"Step 1620 | Loss: -22.7184 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:45.023727Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 16% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:49.260427Z","level":"INFO","fields":{"message":"Step 1624 | Loss: -30.1137 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:54.205873Z","level":"INFO","fields":{"message":"Step 1630 | Loss: -28.2883 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:54.206092Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 19% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:12:55.409238Z","level":"INFO","fields":{"message":"Step 1632 | Loss: -23.7136 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:10.149892Z","level":"INFO","fields":{"message":"Step 1640 | Loss: -32.5708 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:10.150552Z","level":"INFO","fields":{"message":"Step 1640 | Loss: -32.5708 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:10.150880Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 29% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:15.765171Z","level":"INFO","fields":{"message":"Step 1648 | Loss: -25.2318 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:16.938325Z","level":"INFO","fields":{"message":"Step 1650 | Loss: -22.0909 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:16.938457Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:20.178324Z","level":"INFO","fields":{"message":"Step 1656 | Loss: -21.6794 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:22.912583Z","level":"INFO","fields":{"message":"Step 1660 | Loss: -23.4495 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:22.912645Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:26.508821Z","level":"INFO","fields":{"message":"Step 1664 | Loss: -22.8345 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:36.295980Z","level":"INFO","fields":{"message":"Step 1670 | Loss: -30.1546 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:36.297866Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 30% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:38.506622Z","level":"INFO","fields":{"message":"Step 1672 | Loss: -22.1457 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:43.882742Z","level":"INFO","fields":{"message":"Step 1680 | Loss: -29.6088 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:43.882778Z","level":"INFO","fields":{"message":"Step 1680 | Loss: -29.6088 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:43.882804Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 26% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:49.414097Z","level":"INFO","fields":{"message":"Step 1688 | Loss: -26.4212 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:50.829678Z","level":"INFO","fields":{"message":"Step 1690 | Loss: -23.0628 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:50.829864Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 24% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:55.410769Z","level":"INFO","fields":{"message":"Step 1696 | Loss: -19.5533 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:58.318877Z","level":"INFO","fields":{"message":"Step 1700 | Loss: -20.7723 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:13:58.319063Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 22% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:01.048209Z","level":"INFO","fields":{"message":"Step 1704 | Loss: -24.2053 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:06.890922Z","level":"INFO","fields":{"message":"Step 1710 | Loss: -30.5341 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:06.891586Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 17% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:08.567311Z","level":"INFO","fields":{"message":"Step 1712 | Loss: -24.3249 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:20.266876Z","level":"INFO","fields":{"message":"Step 1720 | Loss: -30.5312 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:20.269815Z","level":"INFO","fields":{"message":"Step 1720 | Loss: -30.5312 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:20.269965Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 27% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:26.911269Z","level":"INFO","fields":{"message":"Step 1728 | Loss: -23.1739 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:28.571061Z","level":"INFO","fields":{"message":"Step 1730 | Loss: -22.5330 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:28.571211Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 42% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:33.431310Z","level":"INFO","fields":{"message":"Step 1736 | Loss: -30.6131 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:36.193409Z","level":"INFO","fields":{"message":"Step 1740 | Loss: -23.3307 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:36.193904Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 14% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:38.445642Z","level":"INFO","fields":{"message":"Step 1744 | Loss: -25.9644 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:41.912237Z","level":"INFO","fields":{"message":"Step 1750 | Loss: -26.2567 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:41.912368Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 13% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:42.972366Z","level":"INFO","fields":{"message":"Step 1752 | Loss: -19.3754 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:51.550578Z","level":"INFO","fields":{"message":"Step 1760 | Loss: -29.2569 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:51.551738Z","level":"INFO","fields":{"message":"Step 1760 | Loss: -29.2569 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:14:51.551835Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 22% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:08.662755Z","level":"INFO","fields":{"message":"Step 1768 | Loss: -26.2352 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:09.886010Z","level":"INFO","fields":{"message":"Step 1770 | Loss: -27.5380 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:09.886165Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 26% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:13.580443Z","level":"INFO","fields":{"message":"Step 1776 | Loss: -26.6011 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:16.238735Z","level":"INFO","fields":{"message":"Step 1780 | Loss: -21.2318 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:16.238918Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 17% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:19.018366Z","level":"INFO","fields":{"message":"Step 1784 | Loss: -26.0638 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:22.500039Z","level":"INFO","fields":{"message":"Step 1790 | Loss: -25.8670 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:22.500138Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 14% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:24.050391Z","level":"INFO","fields":{"message":"Step 1792 | Loss: -28.3336 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:29.426966Z","level":"INFO","fields":{"message":"Step 1800 | Loss: -22.6529 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:29.427068Z","level":"INFO","fields":{"message":"Step 1800 | Loss: -22.6529 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:29.427136Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:35.399188Z","level":"INFO","fields":{"message":"Step 1808 | Loss: -23.6475 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:36.479280Z","level":"INFO","fields":{"message":"Step 1810 | Loss: -23.5318 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:36.479356Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:40.791079Z","level":"INFO","fields":{"message":"Step 1816 | Loss: -21.1568 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:43.281047Z","level":"INFO","fields":{"message":"Step 1820 | Loss: -27.3003 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:43.281113Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 16% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:47.247917Z","level":"INFO","fields":{"message":"Step 1824 | Loss: -26.3229 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:51.097904Z","level":"INFO","fields":{"message":"Step 1830 | Loss: -22.1941 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:51.098077Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:52.161126Z","level":"INFO","fields":{"message":"Step 1832 | Loss: -25.1130 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:57.782782Z","level":"INFO","fields":{"message":"Step 1840 | Loss: -22.4310 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:57.782836Z","level":"INFO","fields":{"message":"Step 1840 | Loss: -22.4310 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:15:57.782893Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 22% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:16:02.620060Z","level":"INFO","fields":{"message":"Step 1848 | Loss: -24.2178 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:16:03.969888Z","level":"INFO","fields":{"message":"Step 1850 | Loss: -28.4384 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:16:03.976674Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 19% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:16:08.208770Z","level":"INFO","fields":{"message":"Step 1856 | Loss: -22.9569 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:16:12.027189Z","level":"INFO","fields":{"message":"Step 1860 | Loss: -24.9626 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:16:12.027364Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 37% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:16:15.470949Z","level":"INFO","fields":{"message":"Step 1864 | Loss: -24.0620 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:16:18.852325Z","level":"INFO","fields":{"message":"Step 1870 | Loss: -27.3934 | LR: 0.000030"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:16:18.852439Z","level":"INFO","fields":{"message":"[load-adapt] CPU load: 15% | batch size: 16 (ok)"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:16:19.899350Z","level":"INFO","fields":{"message":"Step 1872 | Loss: -29.7270 | gradient accumulation cycle complete"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:16:21.606550Z","level":"INFO","fields":{"message":"Epoch 3 avg train loss: -22.7092"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:20:46.686792Z","level":"INFO","fields":{"message":"Epoch 3 avg val loss: -25.9085 | perplexity: 0.0000"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:20:47.360627Z","level":"INFO","fields":{"message":"Saved checkpoint to output/continuous/best"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:20:47.360670Z","level":"INFO","fields":{"message":"New best train loss: -22.7092, saved checkpoint"},"target":"experai::training"}
+{"timestamp":"2026-07-25T03:20:47.367964Z","level":"INFO","fields":{"message":"Jetstream training complete. Losses: [-12.801686981201172, -17.094816619873047, -22.70917949523926]"},"target":"experai"}

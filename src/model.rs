@@ -1,8 +1,13 @@
 use anyhow::Result;
 use candle_core::{Device, Tensor};
 use candle_nn::{linear_no_bias, Dropout, Embedding, Linear, Module, VarBuilder};
-use tracing::{info, debug, trace};
+use tracing::{debug, info, trace};
 
+/// Configuration for a transformer language model.
+///
+/// Defines all hyperparameters needed to construct a GPT-2-style transformer
+/// including vocabulary size, hidden dimensions, layer count, and special
+/// token identifiers.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct ModelConfig {
     pub vocab_size: usize,
@@ -38,6 +43,10 @@ impl Default for ModelConfig {
     }
 }
 
+/// A GPT-2-style transformer language model.
+///
+/// Composed of token embeddings, a stack of [`TransformerLayer`] blocks,
+/// a final RMSNorm, and a linear projection to vocabulary logits.
 pub struct TransformerModel {
     pub config: ModelConfig,
     pub embedding: Embedding,
@@ -47,6 +56,10 @@ pub struct TransformerModel {
     pub dropout: Dropout,
 }
 
+/// A single transformer block with pre-norm self-attention and an MLP.
+///
+/// Uses pre-LayerNorm ordering: norm → attention → residual →
+/// norm → MLP → residual.
 pub struct TransformerLayer {
     self_attn: MultiHeadAttention,
     mlp: Mlp,
@@ -54,6 +67,7 @@ pub struct TransformerLayer {
     post_attention_layernorm: candle_nn::RmsNorm,
 }
 
+/// Multi-head self-attention with separate Q/K/V/O projections.
 struct MultiHeadAttention {
     q_proj: Linear,
     k_proj: Linear,
@@ -63,12 +77,17 @@ struct MultiHeadAttention {
     head_dim: usize,
 }
 
+/// SwiGLU-style MLP with gated linear units.
 struct Mlp {
     gate_proj: Linear,
     up_proj: Linear,
     down_proj: Linear,
 }
 
+/// Construct a [`TransformerModel`] from a [`ModelConfig`] and weight [`VarBuilder`].
+///
+/// Allocates embeddings, transformer layers, final norm, and LM head
+/// in the order expected by the weight file layout.
 pub fn build_model(config: &ModelConfig, vb: VarBuilder) -> Result<TransformerModel> {
     info!(
         "Building model: vocab={}, hidden={}, layers={}, heads={}, intermediate={}, max_seq={}",
@@ -91,8 +110,12 @@ pub fn build_model(config: &ModelConfig, vb: VarBuilder) -> Result<TransformerMo
     let dropout = Dropout::new(0.1);
 
     let head_dim = config.hidden_size / config.num_heads;
+    // Approximate parameter count (embeddings + per-layer projections + lm_head)
     let params = (config.hidden_size * config.vocab_size)
-        + config.num_layers * (4 * config.hidden_size * config.hidden_size + 4 * config.hidden_size + 2 * config.intermediate_size * config.hidden_size)
+        + config.num_layers
+            * (4 * config.hidden_size * config.hidden_size
+                + 4 * config.hidden_size
+                + 2 * config.intermediate_size * config.hidden_size)
         + config.hidden_size * config.vocab_size;
     info!(
         "Model built: {} params ({:.1}M), head_dim={}",
@@ -136,6 +159,11 @@ impl TransformerLayer {
         })
     }
 
+    /// Pre-norm transformer block forward pass.
+    ///
+    /// Applies two residual sub-layers:
+    /// 1. `x + attn(norm(x))`
+    /// 2. `h + mlp(norm(h))`
     fn forward(&self, x: &Tensor) -> candle_core::Result<Tensor> {
         let residual = x.clone();
         let h = self.input_layernorm.forward(x)?;
@@ -168,9 +196,15 @@ impl MultiHeadAttention {
         })
     }
 
+    /// Multi-head self-attention forward pass.
+    ///
+    /// Projects input to Q/K/V, reshapes to per-head dimensions, computes
+    /// scaled dot-product attention with a causal mask, then projects back.
     fn forward(&self, x: &Tensor) -> candle_core::Result<Tensor> {
         let (batch_size, seq_len, hidden_size) = x.dims3()?;
         trace!("Attention forward: input shape {:?}", x.shape());
+
+        // Linear projections: [B, T, D] → [B, T, D]
         let q = self.q_proj.forward(x)?;
         let k = self.k_proj.forward(x)?;
         let v = self.v_proj.forward(x)?;
@@ -190,7 +224,7 @@ impl MultiHeadAttention {
         let scale = 1.0_f64 / (self.head_dim as f64).sqrt();
         let k_t = k.transpose(2, 3)?;
 
-        // Causal mask
+        // Causal mask: upper triangle filled with -inf to prevent attending to future tokens
         let mask = causal_mask(seq_len, x.device())?;
         let scores = (q
             .contiguous()?
@@ -201,7 +235,7 @@ impl MultiHeadAttention {
         let attn = candle_nn::ops::softmax(&scores, 3)?;
         let out = attn.matmul(&v.contiguous()?)?;
 
-        // Reshape back to (batch, seq, hidden)
+        // Merge heads: (batch, heads, seq, head_dim) → (batch, seq, hidden)
         let out = out
             .transpose(1, 2)?
             .reshape((batch_size, seq_len, hidden_size))?;
@@ -211,10 +245,17 @@ impl MultiHeadAttention {
     }
 }
 
+/// Build a causal attention mask of shape `[1, 1, seq_len, seq_len]`.
+///
+/// Upper-triangular positions (future tokens) are filled with `-inf` so
+/// they are zeroed out after softmax. Lower-triangular and diagonal
+/// positions are `0.0`.
 pub(crate) fn causal_mask(seq_len: usize, device: &Device) -> candle_core::Result<Tensor> {
     // Create an upper triangular mask of -inf
     let mask_vals: Vec<f32> = (0..seq_len)
-        .flat_map(|i| (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 }))
+        .flat_map(|i| {
+            (0..seq_len).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 })
+        })
         .collect();
     let mask = Tensor::from_slice(&mask_vals, (seq_len, seq_len), device)?
         .unsqueeze(0)?
@@ -224,7 +265,11 @@ pub(crate) fn causal_mask(seq_len: usize, device: &Device) -> candle_core::Resul
 
 impl Mlp {
     fn new(config: &ModelConfig, vb: VarBuilder) -> Result<Self> {
-        trace!("Creating MLP: hidden={}, intermediate={}", config.hidden_size, config.intermediate_size);
+        trace!(
+            "Creating MLP: hidden={}, intermediate={}",
+            config.hidden_size,
+            config.intermediate_size
+        );
         let gate_proj = linear_no_bias(
             config.hidden_size,
             config.intermediate_size,
@@ -249,11 +294,16 @@ impl Mlp {
     }
 }
 
+/// SwiGLU MLP: `down_proj(gelu(gate(x)) * up(x))`.
+///
+/// The gate branch applies GELU activation; the result is element-wise
+/// multiplied with the up projection before the down projection.
 impl Module for Mlp {
     fn forward(&self, x: &Tensor) -> candle_core::Result<Tensor> {
         let gate = self.gate_proj.forward(x)?;
         let gate = gate.gelu_erf()?;
         let up = self.up_proj.forward(x)?;
+        // SwiGLU gating: element-wise product of activated gate and up path
         let gate_up = (gate * up)?;
         let out = self.down_proj.forward(&gate_up)?;
         Ok(out)
@@ -261,6 +311,7 @@ impl Module for Mlp {
 }
 
 impl Module for TransformerModel {
+    /// Full forward pass: embed tokens → transformer stack → norm → logits.
     fn forward(&self, x: &Tensor) -> candle_core::Result<Tensor> {
         trace!("TransformerModel forward: input shape {:?}", x.shape());
         let mut h = self.embedding.forward(x)?;

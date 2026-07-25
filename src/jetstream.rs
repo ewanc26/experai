@@ -1,17 +1,21 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, error, debug, warn, trace};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::data::{Dataset, DatasetSample};
 
-/// Jetstream configuration
+/// Configuration for connecting to and consuming from the Bluesky Jetstream
+/// firehose.
+///
+/// Jetstream provides a WebSocket stream of all public AT Protocol events.
+/// See <https://github.com/bluesky-social/jetstream> for details.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JetstreamConfig {
     /// Jetstream host (e.g., "jetstream2.us-east.bsky.network")
@@ -38,13 +42,13 @@ impl Default for JetstreamConfig {
             dids: Vec::new(),
             max_samples: 10000,
             batch_size: 100,
-            max_duration_secs: 3600, // 1 hour
+            max_duration_secs: 3600,
             compression: false,
         }
     }
 }
 
-/// A single event from Jetstream
+/// A single post event received from the Jetstream WebSocket.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JetstreamPost {
     pub did: String,
@@ -53,7 +57,7 @@ pub struct JetstreamPost {
     pub rkey: Option<String>,
 }
 
-/// Statistics from a Jetstream collection run
+/// Summary statistics produced by a Jetstream collection run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JetstreamStats {
     pub total_events: usize,
@@ -63,7 +67,13 @@ pub struct JetstreamStats {
     pub posts_per_second: f64,
 }
 
-/// Collect posts from Jetstream into a Dataset
+/// Collect posts from Jetstream into a [`Dataset`].
+///
+/// Spawns a WebSocket consumer task, collects posts into an in-memory buffer,
+/// and applies DID-based filtering. Stops when `max_samples` or
+/// `max_duration_secs` is reached.
+///
+/// Returns the populated dataset and collection statistics.
 pub async fn collect_from_jetstream(
     config: &JetstreamConfig,
     tokenizer: tokenizers::Tokenizer,
@@ -75,19 +85,17 @@ pub async fn collect_from_jetstream(
 
     let (tx, mut rx) = mpsc::channel::<JetstreamPost>(config.batch_size * 2);
 
-    // Build the WebSocket URL with query parameters
     let url = build_jetstream_url(config)?;
     info!("Connecting to Jetstream: {}", url);
 
-    // Set up cancellation token
     let cancel_token = CancellationToken::new();
     let cancel_clone = cancel_token.clone();
 
-    // Spawn the WebSocket consumer
     let config_for_consumer = config.clone();
     let collected_clone = collected.clone();
     let cancelled_clone = cancelled.clone();
 
+    // Spawn the WebSocket consumer on a background task
     tokio::spawn(async move {
         match run_websocket_consumer(&config_for_consumer, tx.clone(), cancel_clone.clone()).await {
             Ok(()) => {}
@@ -95,14 +103,15 @@ pub async fn collect_from_jetstream(
                 error!("WebSocket consumer error: {}", e);
             }
         }
+        // Wait for all sends to complete before the channel closes
         let _ = tx.closed().await;
     });
 
-    // Collect posts into a Vec until we hit limits or cancellation
     let mut posts = Vec::with_capacity(config.max_samples);
     let timeout = Duration::from_secs(config.max_duration_secs);
     let dids_filter = config.dids.clone();
 
+    // Main collection loop: drain the channel, enforce limits, log progress
     let mut tick_count: u64 = 0;
     loop {
         if posts.len() >= config.max_samples {
@@ -121,10 +130,11 @@ pub async fn collect_from_jetstream(
         }
 
         tokio::select! {
+            // Receive a post from the WebSocket consumer and decide whether to keep it
             Some(post) = rx.recv() => {
                 let sample = DatasetSample {
                     text: post.text.clone(),
-                    tokens: Vec::new(), // Will be tokenized later
+                    tokens: Vec::new(), // Populated in the tokenisation pass below
                     label: Some(format!("jetstream:{}", post.did)),
                     did: Some(post.did.clone()),
                 };
@@ -144,6 +154,7 @@ pub async fn collect_from_jetstream(
                     filtered.fetch_add(1, Ordering::Relaxed);
                 }
             }
+            // Periodic heartbeat when no posts arrive for 5 seconds
             _ = tokio::time::sleep(Duration::from_secs(5)) => {
                 tick_count += 1;
                 let elapsed = start.elapsed().as_secs_f64();
@@ -157,11 +168,11 @@ pub async fn collect_from_jetstream(
         }
     }
 
-    // Signal completion and wait for consumer to finish
+    // Signal the consumer task to shut down and allow brief drain time
     cancel_token.cancel();
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // Tokenize all collected samples
+    // Tokenize all collected samples before returning
     for sample in &mut posts {
         let tokens = tokenizer
             .encode(sample.text.as_str(), true)
@@ -177,7 +188,11 @@ pub async fn collect_from_jetstream(
         valid_posts: posts.len(),
         filtered_posts: filtered.load(Ordering::Relaxed),
         duration_secs: duration,
-        posts_per_second: if duration > 0.0 { posts.len() as f64 / duration } else { 0.0 },
+        posts_per_second: if duration > 0.0 {
+            posts.len() as f64 / duration
+        } else {
+            0.0
+        },
     };
 
     info!(
@@ -189,13 +204,18 @@ pub async fn collect_from_jetstream(
         Dataset {
             samples: posts,
             tokenizer,
-            max_length: 512, // Default max length
+            max_length: 512,
         },
         stats,
     ))
 }
 
-/// Build the WebSocket URL with query parameters
+/// Build the Jetstream WebSocket URL with query parameters for filtering.
+///
+/// Parameters are URL-encoded as `key=value` pairs joined by `&`:
+/// - `wantedCollections` — one per collection
+/// - `wantedDids` — one per DID
+/// - `compression=zstd` — when compression is enabled
 fn build_jetstream_url(config: &JetstreamConfig) -> Result<String> {
     let mut url = format!("wss://{}/subscribe", config.host);
 
@@ -226,7 +246,10 @@ fn build_jetstream_url(config: &JetstreamConfig) -> Result<String> {
     Ok(url)
 }
 
-/// Check if a post should be included based on DID filtering
+/// Check if a post should be included based on DID filtering.
+///
+/// Returns `true` if the DID filter list is empty (accept all) or if the
+/// post's DID is in the allowed list.
 fn should_include_post(post: &JetstreamPost, dids: &[String]) -> bool {
     if dids.is_empty() {
         return true;
@@ -234,7 +257,10 @@ fn should_include_post(post: &JetstreamPost, dids: &[String]) -> bool {
     dids.iter().any(|d| d == &post.did)
 }
 
-/// Run the WebSocket consumer (real implementation using tokio-tungstenite)
+/// Run the WebSocket consumer loop with automatic reconnection.
+///
+/// Reconnects on transient errors with a 1-second backoff. Exits when the
+/// cancellation token is triggered or the stream ends gracefully.
 async fn run_websocket_consumer(
     config: &JetstreamConfig,
     tx: mpsc::Sender<JetstreamPost>,
@@ -249,7 +275,8 @@ async fn run_websocket_consumer(
             break;
         }
 
-        match connect_and_stream(&url, &tx, &cancel_token, &config.collections, &config.dids).await {
+        match connect_and_stream(&url, &tx, &cancel_token, &config.collections, &config.dids).await
+        {
             Ok(()) => {
                 info!("WebSocket stream ended gracefully");
                 break;
@@ -259,6 +286,7 @@ async fn run_websocket_consumer(
                 if cancel_token.is_cancelled() {
                     break;
                 }
+                // Brief backoff before reconnecting
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }
@@ -267,6 +295,11 @@ async fn run_websocket_consumer(
     Ok(())
 }
 
+/// Establish a WebSocket connection and stream messages into the channel.
+///
+/// Parses each incoming text message, extracts post data for matching
+/// collections and DID filters, and forwards accepted posts via `tx`.
+/// Terminates on server close, stream end, or cancellation.
 async fn connect_and_stream(
     url: &str,
     tx: &mpsc::Sender<JetstreamPost>,
@@ -293,7 +326,7 @@ async fn connect_and_stream(
                                 parsed_count += 1;
                                 if should_include_post(&post, dids_filter) {
                                     if tx.send(post).await.is_err() {
-                                        break;
+                                        break; // Receiver dropped
                                     }
                                     sent_count += 1;
                                 }
@@ -306,6 +339,7 @@ async fn connect_and_stream(
                     Some(Ok(Message::Binary(_))) => {
                         msg_count += 1;
                     }
+                    // Control frames — ignored
                     Some(Ok(Message::Ping(_))) | Some(Ok(Message::Pong(_))) | Some(Ok(Message::Frame(_))) => {}
                     Some(Ok(Message::Close(_))) => {
                         info!("WebSocket closed by server: {} received, {} parsed, {} sent", msg_count, parsed_count, sent_count);
@@ -353,6 +387,11 @@ struct JetstreamMessage {
     _time: Option<String>,
 }
 
+/// Parse a raw Jetstream JSON message into a [`JetstreamPost`].
+///
+/// Only `"commit"` events with a non-empty `"text"` field are accepted.
+/// For `app.bsky.feed.post` records, English-language posts are preferred
+/// (filtered by the `langs` field).
 fn parse_jetstream_message(
     value: &serde_json::Value,
     wanted_collections: &[String],
@@ -365,6 +404,7 @@ fn parse_jetstream_message(
         }
     };
 
+    // Only process commit events (creates/updates/deletes)
     if msg.kind.as_deref() != Some("commit") {
         trace!("Skipping non-commit message: kind={:?}", msg.kind);
         return None;
@@ -373,6 +413,7 @@ fn parse_jetstream_message(
     let did = msg.did?;
     let commit = msg.commit?;
 
+    // Filter by collection if a wanted list is specified
     if let Some(col) = &commit.collection {
         if !wanted_collections.is_empty() && !wanted_collections.contains(col) {
             trace!("Skipping collection '{}' (not in wanted list)", col);
@@ -388,11 +429,11 @@ fn parse_jetstream_message(
         return None;
     }
 
+    // English language filter: only keep posts whose `langs` array includes "en"
     if commit.collection.as_deref() == Some("app.bsky.feed.post") {
         let langs = record.get("langs").and_then(|v| v.as_array());
-        let is_english = langs.is_some_and(|arr| {
-            arr.iter().any(|l| l.as_str() == Some("en"))
-        });
+        let is_english =
+            langs.is_some_and(|arr| arr.iter().any(|l| l.as_str() == Some("en")));
         if !is_english {
             trace!("Skipping non-English post from {}", did);
             return None;
@@ -414,13 +455,18 @@ fn parse_jetstream_message(
     })
 }
 
-/// Create a Dataset from saved Jetstream posts (JSONL file)
+/// Load a previously-saved Jetstream dataset from a JSONL file.
+///
+/// Convenience wrapper around [`Dataset::from_jsonl`].
 pub fn load_jetstream_dataset(
     path: &str,
     tokenizer: tokenizers::Tokenizer,
     max_length: usize,
 ) -> Result<Dataset> {
-    info!("Loading Jetstream dataset from {} (max_length={})", path, max_length);
+    info!(
+        "Loading Jetstream dataset from {} (max_length={})",
+        path, max_length
+    );
     Dataset::from_jsonl(path, tokenizer, max_length)
 }
 
@@ -432,7 +478,9 @@ mod tests {
     fn test_jetstream_config_defaults() {
         let config = JetstreamConfig::default();
         assert_eq!(config.host, "jetstream2.us-east.bsky.network");
-        assert!(config.collections.contains(&"app.bsky.feed.post".to_string()));
+        assert!(config
+            .collections
+            .contains(&"app.bsky.feed.post".to_string()));
         assert!(config.dids.is_empty());
         assert_eq!(config.max_samples, 10000);
     }

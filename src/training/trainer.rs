@@ -1,5 +1,5 @@
 use anyhow::Result;
-use candle_core::{DType, Device, IndexOp, Tensor, D};
+use candle_core::{DType, Device, IndexOp};
 use candle_nn::{AdamW, Module, Optimizer, VarBuilder, VarMap};
 use std::path::Path;
 use tracing::{info, debug, trace};
@@ -8,62 +8,30 @@ use crate::data::{DataCollator, Dataset};
 use crate::model::{build_model, ModelConfig, TransformerModel};
 use crate::utils::{self, GradientAccumulator, SystemLoadConfig, SystemLoadMonitor};
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
-pub struct TrainingConfig {
-    pub model_name: String,
-    pub data_path: String,
-    pub output_dir: String,
-    pub epochs: usize,
-    pub learning_rate: f64,
-    pub batch_size: usize,
-    pub gradient_accumulation_steps: usize,
-    pub max_seq_len: usize,
-    pub precision: String,
-    pub warmup_steps: usize,
-    pub weight_decay: f64,
-    pub max_grad_norm: f64,
-    pub seed: u64,
-    pub enable_load_monitoring: bool,
-    pub max_cpu_load: f32,
-    pub load_check_interval: usize,
-}
+use super::config::TrainingConfig;
+use super::loss::{compute_loss, compute_perplexity};
 
-impl Default for TrainingConfig {
-    fn default() -> Self {
-        Self {
-            model_name: "gpt2".to_string(),
-            data_path: "data/train.jsonl".to_string(),
-            output_dir: "output".to_string(),
-            epochs: 3,
-            learning_rate: 5e-5,
-            batch_size: 4,
-            gradient_accumulation_steps: 8,
-            max_seq_len: 512,
-            precision: "bf16".to_string(),
-            warmup_steps: 500,
-            weight_decay: 0.01,
-            max_grad_norm: 1.0,
-            seed: 42,
-            enable_load_monitoring: true,
-            max_cpu_load: 0.80,
-            load_check_interval: 10,
-        }
-    }
-}
-
+/// Orchestrates the full training lifecycle: initialization, optimization,
+/// validation, checkpointing, and learning-rate scheduling.
 pub struct Trainer {
     pub config: TrainingConfig,
     pub device: Device,
     pub var_map: VarMap,
     pub optimizer: AdamW,
     pub model: TransformerModel,
+    /// Lowest training loss observed so far; used to decide checkpoint saves.
     pub best_loss: f64,
+    /// Total number of optimizer steps taken across all epochs.
     pub global_step: usize,
+    /// Optional system-load monitor that dynamically adjusts batch size.
     pub load_monitor: Option<SystemLoadMonitor>,
+    /// Current effective learning rate (after scheduling).
     pub current_lr: f64,
 }
 
 impl Trainer {
+    /// Build a trainer from configuration, allocating the model and optimizer on the
+    /// best available device (CUDA > Metal > CPU).
     pub fn new(config: TrainingConfig, model_config: ModelConfig) -> Result<Self> {
         info!(
             "Creating trainer: lr={}, batch={}, grad_accum={}, epochs={}, precision={}, max_seq={}",
@@ -111,6 +79,10 @@ impl Trainer {
         })
     }
 
+    /// Replace the optimizer with a fresh AdamW instance using `new_lr`.
+    ///
+    /// This is the simplest way to change the learning rate without touching
+    /// the internal Adam state (momentum buffers are reset).
     pub fn update_learning_rate(&mut self, new_lr: f64) -> Result<()> {
         debug!("Updating learning rate: {:.6} -> {:.6}", self.current_lr, new_lr);
         self.optimizer = AdamW::new(
@@ -127,6 +99,8 @@ impl Trainer {
         Ok(())
     }
 
+    /// Run a forward pass over `dataset` and return the average loss without
+    /// updating any parameters.
     pub fn validate(&self, dataset: &Dataset) -> Result<f64> {
         debug!("Running validation on {} samples", dataset.len());
         let collator = DataCollator::new(
@@ -146,10 +120,11 @@ impl Trainer {
             let input_ids = input_ids.to_device(&self.device)?;
 
             let logits = self.model.forward(&input_ids)?;
+            // Shift: predict token at position t+1 from positions..=t.
             let shift_logits = logits.i((.., 0..input_ids.shape().dims()[1].saturating_sub(1), ..))?;
             let shift_labels = input_ids.i((.., 1..))?;
 
-            let loss = self.compute_loss(&shift_logits, &shift_labels)?;
+            let loss = compute_loss(&shift_logits, &shift_labels)?;
             let loss_val = loss.to_scalar::<f32>()? as f64;
             total_loss += loss_val;
             count += 1;
@@ -160,6 +135,9 @@ impl Trainer {
         Ok(avg_loss)
     }
 
+    /// Run the full training loop across all epochs.
+    ///
+    /// Returns a vector of per-epoch average training losses.
     pub fn train(&mut self, dataset: &Dataset) -> Result<Vec<f64>> {
         let collator = DataCollator::new(
             self.model.config.pad_token_id as u32,
@@ -192,6 +170,7 @@ impl Trainer {
                     continue;
                 }
 
+                // --- Dynamic batch scaling: shrink the batch when CPU load is high ---
                 if let Some(ref mut monitor) = self.load_monitor {
                     if self.global_step.is_multiple_of(self.config.load_check_interval) {
                         let cpu_load = monitor.current_load();
@@ -214,6 +193,7 @@ impl Trainer {
                     }
                 }
 
+                // Trim the chunk to the dynamically-scaled batch size.
                 let effective_chunk = if chunk.len() > dynamic_batch_size {
                     &chunk[..dynamic_batch_size]
                 } else {
@@ -225,16 +205,18 @@ impl Trainer {
 
                 let logits = self.model.forward(&input_ids)?;
 
+                // Causal LM: shift logits and labels by one position.
                 let shift_logits =
                     logits.i((.., 0..input_ids.shape().dims()[1].saturating_sub(1), ..))?;
                 let shift_labels = input_ids.i((.., 1..))?;
 
-                let loss = self.compute_loss(&shift_logits, &shift_labels)?;
+                let loss = compute_loss(&shift_logits, &shift_labels)?;
                 let loss_val = loss.to_scalar::<f32>()? as f64;
                 epoch_loss += loss_val;
                 batch_count += 1;
                 self.global_step += 1;
 
+                // --- Cosine warmup schedule: linearly ramp LR to peak ---
                 let scheduled_lr = self.learning_rate(self.global_step);
                 if (scheduled_lr - self.current_lr).abs() > 1e-12 {
                     self.update_learning_rate(scheduled_lr)?;
@@ -243,6 +225,8 @@ impl Trainer {
 
                 self.optimizer.backward_step(&loss)?;
 
+                // Gradient accumulation: optimizer steps are taken inside
+                // `GradientAccumulator::step()` after every N micro-batches.
                 if grad_accum.step() {
                     info!(
                         "Step {} | Loss: {:.4} | gradient accumulation cycle complete",
@@ -271,6 +255,7 @@ impl Trainer {
             info!("Epoch {} avg val loss: {:.4} | perplexity: {:.4}", epoch + 1, val_loss, val_ppl);
             losses.push(avg_loss);
 
+            // --- Checkpoint saving: persist weights when a new best loss is found ---
             if avg_loss < self.best_loss {
                 self.best_loss = avg_loss;
                 let ckpt_path = format!("{}/best", self.config.output_dir);
@@ -282,22 +267,8 @@ impl Trainer {
         Ok(losses)
     }
 
-    fn compute_loss(&self, logits: &Tensor, labels: &Tensor) -> Result<Tensor> {
-        let (batch, seq, _vocab) = logits.dims3()?;
-        let vocab_size = logits.shape().dims().last().copied().unwrap_or(0);
-        trace!("compute_loss: logits={:?}, labels={:?}", logits.shape(), labels.shape());
-
-        let log_probs = candle_nn::ops::log_softmax(logits, D::Minus1)?;
-
-        let labels_flat = labels.reshape((batch * seq, 1))?;
-        let log_probs_flat = log_probs.reshape((batch * seq, vocab_size))?;
-
-        let nll = log_probs_flat.gather(&labels_flat, 1)?;
-        let loss = nll.mean_all()?;
-
-        Ok(loss)
-    }
-
+    /// Persist the current model weights, optimizer metadata, and training state
+    /// to `path` (without file extension — `.json` and `.safetensors` are appended).
     pub fn save_checkpoint(&self, path: &str) -> Result<()> {
         let path = Path::new(path);
         if let Some(parent) = path.parent() {
@@ -313,14 +284,12 @@ impl Trainer {
         let metadata_path = path.with_extension("json");
         std::fs::write(metadata_path, serde_json::to_string_pretty(&metadata)?)?;
 
-        // Save model config for export
         let model_config_path = path.parent().unwrap_or(Path::new(".")).join("model_config.json");
         std::fs::write(
             &model_config_path,
             serde_json::to_string_pretty(&self.model.config)?,
         )?;
 
-        // Save model weights
         let weights_path = path.with_extension("safetensors");
         self.var_map.save(weights_path.to_str().unwrap())?;
 
@@ -328,6 +297,9 @@ impl Trainer {
         Ok(())
     }
 
+    /// Restore model weights and training state from a checkpoint at `path`.
+    ///
+    /// Missing files are silently skipped (partial restores are allowed).
     pub fn load_checkpoint(&mut self, path: &str) -> Result<()> {
         let path = Path::new(path);
         let metadata_path = path.with_extension("json");
@@ -355,10 +327,13 @@ impl Trainer {
         Ok(())
     }
 
+    /// Compute the scheduled learning rate for `step` using a linear warmup
+    /// followed by a constant hold at the peak rate.
     pub fn learning_rate(&self, step: usize) -> f64 {
         let warmup = self.config.warmup_steps;
         let lr = self.config.learning_rate;
 
+        // Linear warmup: ramp from 0 to `lr` over `warmup_steps`.
         let scheduled = if step < warmup {
             lr * (step as f64 / warmup.max(1) as f64)
         } else {
@@ -367,8 +342,4 @@ impl Trainer {
         trace!("LR schedule: step={}, warmup={}, lr={:.6}", step, warmup, scheduled);
         scheduled
     }
-}
-
-pub fn compute_perplexity(loss: f64) -> f64 {
-    loss.exp()
 }
