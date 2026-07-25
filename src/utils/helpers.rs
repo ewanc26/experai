@@ -1,19 +1,25 @@
 use anyhow::Result;
 use candle_core::Tensor;
-use rand::SeedableRng;
-use tracing::{event, Level};
+use tracing::{event, info, Level};
 
 /// Initialise the global tracing subscriber.
 ///
 /// When `test_mode` is `true`, output is written to `stderr` instead of stdout
 /// so that test `println!` output stays clean.
 pub fn init_tracing(log_level: Option<String>, test_mode: bool) -> Result<()> {
-    crate::logging::init_logger(log_level, test_mode)
+    Ok(crate::logging::init_logger(log_level, test_mode)?)
 }
 
 /// Seed the global random number generator for reproducibility.
+///
+/// Sets the candle backend seed via the CPU device so that all subsequent
+/// tensor operations use deterministic random draws.
 pub fn set_global_seed(seed: u64) {
-    let _ = rand::rngs::StdRng::seed_from_u64(seed);
+    let device = candle_core::Device::Cpu;
+    if let Err(e) = device.set_seed(seed) {
+        event!(Level::WARN, "Failed to set candle seed: {}", e);
+    }
+    info!("Global seed set to {}", seed);
 }
 
 /// Load a JSON model configuration file from disk.
@@ -21,13 +27,6 @@ pub fn load_model_cfg(cfg_path: &str) -> Result<serde_json::Value> {
     let contents = std::fs::read_to_string(cfg_path)?;
     let json: serde_json::Value = serde_json::from_str(&contents)?;
     Ok(json)
-}
-
-/// Persist a model configuration as pretty-printed JSON.
-pub fn save_model(cfg_path: &str, json: &serde_json::Value) -> Result<()> {
-    let contents = serde_json::to_string_pretty(json)?;
-    std::fs::write(cfg_path, contents)?;
-    Ok(())
 }
 
 /// Validate that each tensor's shape matches the corresponding expected shape.

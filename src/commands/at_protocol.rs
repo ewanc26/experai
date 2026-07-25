@@ -74,6 +74,7 @@ pub fn run(
         load_check_interval: 10,
         max_swap_usage: 0.0,
         min_free_mem_mb: 2048,
+        min_lr_ratio: 0.1,
     };
 
     let profile = utils::HardwareProfile::detect();

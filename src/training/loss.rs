@@ -14,9 +14,10 @@ pub fn compute_loss(logits: &Tensor, labels: &Tensor) -> Result<Tensor> {
     let labels_flat = labels.reshape((batch * seq, 1))?;
     let log_probs_flat = log_probs.reshape((batch * seq, vocab_size))?;
 
-    // Gather the log-probability assigned to the correct token at each position.
-    let nll = log_probs_flat.gather(&labels_flat, 1)?;
-    let loss = nll.mean_all()?;
+    // Gather the log-probability assigned to the correct token at each position,
+    // then negate: cross-entropy is the *negative* mean log-likelihood.
+    let target_log_probs = log_probs_flat.gather(&labels_flat, 1)?;
+    let loss = target_log_probs.mean_all()?.neg()?;
 
     Ok(loss)
 }

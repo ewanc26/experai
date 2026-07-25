@@ -1,6 +1,6 @@
-use anyhow::Result;
-use candle_core::{Device, Tensor};
-use candle_nn::{linear_no_bias, Dropout, Embedding, Linear, Module, VarBuilder};
+use crate::errors::ExperaiError;
+use candle_core::{Device, DType, Tensor};
+use candle_nn::{linear_no_bias, Dropout, Embedding, Linear, Module, VarBuilder, VarMap};
 use tracing::{debug, info, trace};
 
 /// Configuration for a transformer language model.
@@ -87,8 +87,9 @@ struct Mlp {
 /// Construct a [`TransformerModel`] from a [`ModelConfig`] and weight [`VarBuilder`].
 ///
 /// Allocates embeddings, transformer layers, final norm, and LM head
-/// in the order expected by the weight file layout.
-pub fn build_model(config: &ModelConfig, vb: VarBuilder) -> Result<TransformerModel> {
+/// in the order expected by the weight file layout. After construction,
+/// weights are reinitialised using the config's `initializer_range`.
+pub fn build_model(config: &ModelConfig, vb: VarBuilder) -> Result<TransformerModel, ExperaiError> {
     info!(
         "Building model: vocab={}, hidden={}, layers={}, heads={}, intermediate={}, max_seq={}",
         config.vocab_size, config.hidden_size, config.num_layers, config.num_heads, config.intermediate_size, config.max_seq_len
@@ -110,7 +111,6 @@ pub fn build_model(config: &ModelConfig, vb: VarBuilder) -> Result<TransformerMo
     let dropout = Dropout::new(0.1);
 
     let head_dim = config.hidden_size / config.num_heads;
-    // Approximate parameter count (embeddings + per-layer projections + lm_head)
     let params = (config.hidden_size * config.vocab_size)
         + config.num_layers
             * (4 * config.hidden_size * config.hidden_size
@@ -134,8 +134,64 @@ pub fn build_model(config: &ModelConfig, vb: VarBuilder) -> Result<TransformerMo
     })
 }
 
+/// Reinitialise all named parameters in `varmap` according to their role.
+///
+/// - Embeddings and lm_head: normal distribution with `initializer_range` std dev.
+/// - Attention projections (q/k/v/o): Xavier with scale `sqrt(2 / (hidden * 2))`.
+/// - MLP projections (gate/up/down): Xavier with scale `sqrt(2 / (hidden + intermediate))`.
+/// - RMSNorm weights: ones.
+pub fn init_weights(varmap: &VarMap, config: &ModelConfig, device: &Device) -> Result<(), ExperaiError> {
+    let dtype = DType::F32;
+    let h = config.hidden_size as f64;
+    let inter = config.intermediate_size as f64;
+    let std = config.initializer_range;
+
+    let attn_scale = (2.0 / (h + h)).sqrt();
+    let mlp_scale = (2.0 / (h + inter)).sqrt();
+
+    let data = varmap.data();
+    let tensor_data = data.lock().map_err(|e| {
+        ExperaiError::ModelLoad(format!("variable map lock was poisoned by another thread: {e}"))
+    })?;
+
+    for (name, var) in tensor_data.iter() {
+        let shape = var.shape().dims().to_vec();
+
+        let new_tensor = if name.contains("layernorm") || name.ends_with("norm") {
+            // RMSNorm: weight = ones
+            Tensor::ones(&*shape, dtype, device)?
+        } else if name.starts_with("embedding") {
+            // Embedding: normal with initializer_range
+            Tensor::randn(0.0, std, &*shape, device)?
+        } else if name.contains("self_attn")
+            && (name.contains("q_proj") || name.contains("k_proj")
+                || name.contains("v_proj") || name.contains("o_proj"))
+        {
+            // Attention projections: Xavier
+            Tensor::randn(0.0, attn_scale, &*shape, device)?
+        } else if name.contains("mlp")
+            && (name.contains("gate_proj") || name.contains("up_proj")
+                || name.contains("down_proj"))
+        {
+            // MLP projections: Xavier
+            Tensor::randn(0.0, mlp_scale, &*shape, device)?
+        } else if name.starts_with("lm_head") {
+            // LM head: normal with initializer_range
+            Tensor::randn(0.0, std, &*shape, device)?
+        } else {
+            // Fallback: normal with initializer_range
+            Tensor::randn(0.0, std, &*shape, device)?
+        };
+
+        var.set(&new_tensor)?;
+    }
+
+    info!("Applied custom weight initialisation (initializer_range={})", config.initializer_range);
+    Ok(())
+}
+
 impl TransformerLayer {
-    fn new(config: &ModelConfig, vb: VarBuilder) -> Result<Self> {
+    fn new(config: &ModelConfig, vb: VarBuilder) -> Result<Self, ExperaiError> {
         let head_dim = config.hidden_size / config.num_heads;
         trace!("Creating transformer layer: head_dim={}", head_dim);
         let self_attn = MultiHeadAttention::new(config, head_dim, vb.pp("self_attn"))?;
@@ -180,7 +236,7 @@ impl TransformerLayer {
 }
 
 impl MultiHeadAttention {
-    fn new(config: &ModelConfig, head_dim: usize, vb: VarBuilder) -> Result<Self> {
+    fn new(config: &ModelConfig, head_dim: usize, vb: VarBuilder) -> Result<Self, ExperaiError> {
         let q_proj = linear_no_bias(config.hidden_size, config.hidden_size, vb.pp("q_proj"))?;
         let k_proj = linear_no_bias(config.hidden_size, config.hidden_size, vb.pp("k_proj"))?;
         let v_proj = linear_no_bias(config.hidden_size, config.hidden_size, vb.pp("v_proj"))?;
@@ -264,7 +320,7 @@ pub(crate) fn causal_mask(seq_len: usize, device: &Device) -> candle_core::Resul
 }
 
 impl Mlp {
-    fn new(config: &ModelConfig, vb: VarBuilder) -> Result<Self> {
+    fn new(config: &ModelConfig, vb: VarBuilder) -> Result<Self, ExperaiError> {
         trace!(
             "Creating MLP: hidden={}, intermediate={}",
             config.hidden_size,

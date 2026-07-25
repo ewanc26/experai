@@ -127,8 +127,10 @@ fn test_full_training_pipeline() {
         load_check_interval: 10,
         max_swap_usage: 0.0,
         min_free_mem_mb: 2048,
+        min_lr_ratio: 0.1,
     };
 
+    let vocab_size = model_config.vocab_size;
     let mut trainer = Trainer::new(train_config, model_config).unwrap();
     let losses = trainer.train(&dataset).unwrap();
 
@@ -139,10 +141,20 @@ fn test_full_training_pipeline() {
         "Loss should be finite, got {}",
         final_loss
     );
+    // Cross-entropy is a *negative* log-likelihood, so it must be positive. An
+    // untrained model predicts roughly uniformly, putting the loss near
+    // ln(vocab_size); allow generous slack, but catch a sign flip or a blow-up.
+    let uniform_baseline = (vocab_size as f64).ln();
     assert!(
-        *final_loss < 0.0,
-        "Loss (NLL) should be negative, got {}",
+        *final_loss > 0.0,
+        "Cross-entropy loss should be positive, got {}",
         final_loss
+    );
+    assert!(
+        *final_loss < uniform_baseline * 2.0,
+        "Loss {} is implausibly far above the uniform-prediction baseline {:.2}",
+        final_loss,
+        uniform_baseline
     );
 
     let checkpoint_path = output_dir.join("best.json");
@@ -168,5 +180,181 @@ fn test_full_training_pipeline() {
     assert!(
         metadata.get("best_loss").is_some(),
         "Checkpoint metadata should contain best_loss"
+    );
+}
+
+/// Flatten every variable in a trainer's `VarMap` into a comparable, deterministically
+/// ordered form.
+fn weight_snapshot(trainer: &Trainer) -> Vec<(String, Vec<f32>)> {
+    let data = trainer.var_map.data().lock().unwrap();
+    let mut snapshot: Vec<(String, Vec<f32>)> = data
+        .iter()
+        .map(|(name, var)| {
+            let values = var.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+            (name.clone(), values)
+        })
+        .collect();
+    snapshot.sort_by(|a, b| a.0.cmp(&b.0));
+    snapshot
+}
+
+fn small_model_config() -> ModelConfig {
+    ModelConfig {
+        vocab_size: 512,
+        hidden_size: 32,
+        num_layers: 2,
+        num_heads: 4,
+        intermediate_size: 64,
+        max_seq_len: 32,
+        hidden_act: "gelu".to_string(),
+        initializer_range: 0.02,
+        layer_norm_eps: 1e-5,
+        pad_token_id: 0,
+        bos_token_id: 101,
+        eos_token_id: 102,
+    }
+}
+
+/// A saved checkpoint must restore bit-identical weights into a fresh trainer.
+#[test]
+fn test_checkpoint_roundtrip_restores_weights() {
+    let tmp_dir = tempdir().unwrap();
+    let output_dir = tmp_dir.path().join("output");
+    std::fs::create_dir_all(&output_dir).unwrap();
+
+    let config_for = |seed: u64| TrainingConfig {
+        model_name: "test".to_string(),
+        data_path: String::new(),
+        output_dir: output_dir.to_str().unwrap().to_string(),
+        epochs: 1,
+        learning_rate: 1e-3,
+        batch_size: 4,
+        gradient_accumulation_steps: 1,
+        max_seq_len: 32,
+        precision: "f32".to_string(),
+        warmup_steps: 0,
+        weight_decay: 0.0,
+        max_grad_norm: 1.0,
+        seed,
+        enable_load_monitoring: false,
+        max_cpu_load: 0.8,
+        load_check_interval: 10,
+        max_swap_usage: 0.0,
+        min_free_mem_mb: 2048,
+        min_lr_ratio: 0.1,
+    };
+
+    let saved = Trainer::new(config_for(42), small_model_config()).unwrap();
+    let checkpoint = output_dir.join("roundtrip");
+    saved.save_checkpoint(checkpoint.to_str().unwrap()).unwrap();
+    let expected = weight_snapshot(&saved);
+
+    // Staging files must not survive a successful save.
+    let leftovers: Vec<_> = std::fs::read_dir(&output_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".tmp"))
+        .collect();
+    assert!(
+        leftovers.is_empty(),
+        "atomic save left temp files behind: {:?}",
+        leftovers
+    );
+
+    // A different seed gives different initial weights, so the comparison below is
+    // only satisfiable by actually loading the checkpoint.
+    let mut restored = Trainer::new(config_for(7), small_model_config()).unwrap();
+    assert_ne!(
+        weight_snapshot(&restored),
+        expected,
+        "a differently-seeded trainer should not start with the saved weights"
+    );
+
+    restored
+        .load_checkpoint(checkpoint.to_str().unwrap())
+        .unwrap();
+    assert_eq!(
+        weight_snapshot(&restored),
+        expected,
+        "loaded weights should be identical to the saved ones"
+    );
+}
+
+/// Training on a tiny, highly repetitive dataset must actually reduce the loss.
+///
+/// This is the end-to-end guard that the optimization objective has the right sign
+/// and that gradients reach the weights: a model minimizing cross-entropy on eight
+/// repeated sentences should fit them quickly.
+#[test]
+fn test_training_reduces_loss() {
+    let tmp_dir = tempdir().unwrap();
+    let data_path = tmp_dir.path().join("train.jsonl");
+    let output_dir = tmp_dir.path().join("output");
+    std::fs::create_dir_all(&output_dir).unwrap();
+
+    let mut file = File::create(&data_path).unwrap();
+    for _ in 0..4 {
+        for sample in [
+            r#"{"text": "the cat sat on the mat"}"#,
+            r#"{"text": "the dog ran on the floor"}"#,
+        ] {
+            writeln!(file, "{}", sample).unwrap();
+        }
+    }
+    drop(file);
+
+    let dataset =
+        Dataset::from_jsonl(data_path.to_str().unwrap(), create_test_tokenizer(), 32).unwrap();
+
+    // A small vocabulary keeps the softmax cheap enough to converge in a few epochs.
+    let model_config = small_model_config();
+
+    let train_config = TrainingConfig {
+        model_name: "test".to_string(),
+        data_path: data_path.to_str().unwrap().to_string(),
+        output_dir: output_dir.to_str().unwrap().to_string(),
+        epochs: 12,
+        learning_rate: 1e-3,
+        batch_size: 4,
+        gradient_accumulation_steps: 1,
+        max_seq_len: 32,
+        precision: "f32".to_string(),
+        warmup_steps: 0,
+        weight_decay: 0.0,
+        max_grad_norm: 1.0,
+        seed: 42,
+        enable_load_monitoring: false,
+        max_cpu_load: 0.8,
+        load_check_interval: 10,
+        max_swap_usage: 0.0,
+        min_free_mem_mb: 2048,
+        min_lr_ratio: 0.1,
+    };
+
+    let mut trainer = Trainer::new(train_config, model_config).unwrap();
+    let losses = trainer.train(&dataset).unwrap();
+
+    assert!(
+        losses.len() >= 2,
+        "Need at least two epochs to compare loss, got {}",
+        losses.len()
+    );
+    assert!(
+        losses.iter().all(|l| l.is_finite() && *l > 0.0),
+        "All epoch losses should be positive and finite, got {:?}",
+        losses
+    );
+
+    // Require a real margin, not just noise. Observed decrease is ~6% over 12 epochs
+    // and monotone, so a 1% floor leaves ample headroom.
+    let first = losses[0];
+    let last = *losses.last().unwrap();
+    assert!(
+        last < first * 0.99,
+        "Loss should decrease over training: first epoch {:.4}, last epoch {:.4} (all: {:?})",
+        first,
+        last,
+        losses
     );
 }

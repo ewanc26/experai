@@ -1,21 +1,21 @@
-use anyhow::{anyhow, Result};
+use crate::errors::ExperaiError;
 use tokenizers::Tokenizer;
 use tracing::{info, warn};
 
 use super::dataset::Dataset;
 
 /// Load a HuggingFace `tokenizers` JSON file from `path`.
-pub fn load_tokenizer(path: &str) -> Result<Tokenizer> {
+pub fn load_tokenizer(path: &str) -> Result<Tokenizer, ExperaiError> {
     info!("Loading tokenizer from {}", path);
     let tokenizer = Tokenizer::from_file(path)
-        .map_err(|e| anyhow!("Failed to load tokenizer from {}: {}", path, e))?;
+        .map_err(|e| ExperaiError::ModelLoad(format!("Failed to load tokenizer from {}: {}", path, e)))?;
     info!("Tokenizer loaded (vocab_size={})", tokenizer.get_vocab_size(true));
     Ok(tokenizer)
 }
 
 /// Validate a dataset by checking for empty token sequences and duplicate examples.
 /// Warnings are logged for any issues found; the function always returns `Ok`.
-pub fn validate_dataset(dataset: &Dataset) -> Result<()> {
+pub fn validate_dataset(dataset: &Dataset) -> Result<(), ExperaiError> {
     info!("Validating dataset: {} samples", dataset.len());
     let mut empty_count = 0;
     let mut duplicate_count = 0;

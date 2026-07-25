@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
 use gguf_rs::writer::{GGUFWriter, TensorInfo};
 use safetensors::{Dtype, SafeTensors};
 use tracing::{debug, info};
 
+use crate::errors::ExperaiError;
 use crate::model::ModelConfig;
 
 /// GGML dtype constants used in the GGUF file format.
@@ -14,12 +14,12 @@ const GGML_F16: u32 = 1;
 const GGML_BF16: u32 = 30;
 
 /// Convert a [`safetensors::Dtype`] to the corresponding GGML dtype constant.
-fn safetensors_dtype_to_ggml(dt: Dtype) -> Result<u32> {
+fn safetensors_dtype_to_ggml(dt: Dtype) -> Result<u32, ExperaiError> {
     match dt {
         Dtype::F32 => Ok(GGML_F32),
         Dtype::F16 => Ok(GGML_F16),
         Dtype::BF16 => Ok(GGML_BF16),
-        _ => bail!("Unsupported dtype for GGUF export: {:?}", dt),
+        _ => Err(ExperaiError::Export(format!("Unsupported dtype for GGUF export: {:?}", dt))),
     }
 }
 
@@ -31,8 +31,7 @@ fn safetensors_dtype_to_ggml(dt: Dtype) -> Result<u32> {
 /// - `lm_head.weight` → `output.weight`
 /// - Layer tensors `layers.{i}.*` → `blk.{i}.*` with sub-component renaming
 ///   (e.g. `self_attn.q_proj` → `attn_q`, `mlp.gate_proj` → `ffn_gate`).
-fn map_tensor_name(candle_name: &str) -> Result<String> {
-    // Top-level tensor name mapping
+fn map_tensor_name(candle_name: &str) -> Result<String, ExperaiError> {
     if candle_name == "embedding.weight" {
         return Ok("token_embd.weight".to_string());
     }
@@ -43,66 +42,66 @@ fn map_tensor_name(candle_name: &str) -> Result<String> {
         return Ok("output.weight".to_string());
     }
 
-    // Layer tensors: layers.{i}.XXX → blk.{i}.XXX with name remapping
     if let Some(rest) = candle_name.strip_prefix("layers.") {
-        // Extract layer index and the rest
-        let dot_pos = rest.find('.').context("Invalid layer tensor name")?;
-        let layer_idx: usize = rest[..dot_pos].parse().context("Invalid layer index")?;
+        let dot_pos = rest.find('.').ok_or_else(|| ExperaiError::Export("Invalid layer tensor name".to_string()))?;
+        let layer_idx: usize = rest[..dot_pos].parse().map_err(|_| ExperaiError::Export("Invalid layer index".to_string()))?;
         let suffix = &rest[dot_pos + 1..];
 
         let gguf_suffix = match suffix {
-            // Attention projections
             s if s.starts_with("self_attn.q_proj.") => {
-                format!("attn_q.{}", s.strip_prefix("self_attn.q_proj.").unwrap())
+                let rest = s.strip_prefix("self_attn.q_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                format!("attn_q.{}", rest)
             }
             s if s.starts_with("self_attn.k_proj.") => {
-                format!("attn_k.{}", s.strip_prefix("self_attn.k_proj.").unwrap())
+                let rest = s.strip_prefix("self_attn.k_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                format!("attn_k.{}", rest)
             }
             s if s.starts_with("self_attn.v_proj.") => {
-                format!("attn_v.{}", s.strip_prefix("self_attn.v_proj.").unwrap())
+                let rest = s.strip_prefix("self_attn.v_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                format!("attn_v.{}", rest)
             }
             s if s.starts_with("self_attn.o_proj.") => {
-                format!(
-                    "attn_output.{}",
-                    s.strip_prefix("self_attn.o_proj.").unwrap()
-                )
+                let rest = s.strip_prefix("self_attn.o_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                format!("attn_output.{}", rest)
             }
-            // Layer norms (RMSNorm → LayerNorm mapping, names stay the same for GGUF)
             s if s.starts_with("input_layernorm.") => {
-                format!("ln_1.{}", s.strip_prefix("input_layernorm.").unwrap())
+                let rest = s.strip_prefix("input_layernorm.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                format!("ln_1.{}", rest)
             }
             s if s.starts_with("post_attention_layernorm.") => {
-                format!(
-                    "ln_2.{}",
-                    s.strip_prefix("post_attention_layernorm.").unwrap()
-                )
+                let rest = s
+                    .strip_prefix("post_attention_layernorm.")
+                    .ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                format!("ln_2.{}", rest)
             }
-            // MLP
             s if s.starts_with("mlp.gate_proj.") => {
-                format!("ffn_gate.{}", s.strip_prefix("mlp.gate_proj.").unwrap())
+                let rest = s.strip_prefix("mlp.gate_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                format!("ffn_gate.{}", rest)
             }
             s if s.starts_with("mlp.up_proj.") => {
-                format!("ffn_up.{}", s.strip_prefix("mlp.up_proj.").unwrap())
+                let rest = s.strip_prefix("mlp.up_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                format!("ffn_up.{}", rest)
             }
             s if s.starts_with("mlp.down_proj.") => {
-                format!("ffn_down.{}", s.strip_prefix("mlp.down_proj.").unwrap())
+                let rest = s.strip_prefix("mlp.down_proj.").ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
+                format!("ffn_down.{}", rest)
             }
-            _ => bail!("Unknown tensor suffix in layer: {}", suffix),
+            _ => return Err(ExperaiError::Export(format!("Unknown tensor suffix in layer: {}", suffix))),
         };
 
         return Ok(format!("blk.{}.{}", layer_idx, gguf_suffix));
     }
 
-    bail!("Unmapped tensor name: {}", candle_name)
+    Err(ExperaiError::Export(format!("Unmapped tensor name: {}", candle_name)))
 }
 
 /// Load a [`ModelConfig`] from `model_config.json` in the given directory.
-fn load_model_config(checkpoint_dir: &Path) -> Result<ModelConfig> {
+fn load_model_config(checkpoint_dir: &Path) -> Result<ModelConfig, ExperaiError> {
     let config_path = checkpoint_dir.join("model_config.json");
     let data = std::fs::read_to_string(&config_path)
-        .with_context(|| format!("Failed to read model config from {}", config_path.display()))?;
+        .map_err(|e| ExperaiError::Export(format!("Failed to read model config from {}: {}", config_path.display(), e)))?;
     let config: ModelConfig =
-        serde_json::from_str(&data).with_context(|| "Failed to parse model config")?;
+        serde_json::from_str(&data).map_err(|e| ExperaiError::Export(format!("Failed to parse model config: {}", e)))?;
     Ok(config)
 }
 
@@ -126,19 +125,19 @@ pub fn export_to_gguf(
     model_name: &str,
     lmstudio_dir: Option<&str>,
     _dtype: &str,
-) -> Result<()> {
+) -> Result<(), ExperaiError> {
     let checkpoint_path = Path::new(checkpoint_path);
     let checkpoint_dir = checkpoint_path
         .parent()
-        .context("Invalid checkpoint path")?;
+        .ok_or_else(|| ExperaiError::Export("Invalid checkpoint path".to_string()))?;
 
     // Locate the safetensors file (same stem as the checkpoint path)
     let safetensors_path = checkpoint_path.with_extension("safetensors");
     if !safetensors_path.exists() {
-        bail!(
+        return Err(ExperaiError::Export(format!(
             "Safetensors file not found: {}",
             safetensors_path.display()
-        );
+        )));
     }
 
     let model_config = load_model_config(checkpoint_dir)?;
@@ -152,9 +151,9 @@ pub fn export_to_gguf(
 
     // Deserialize the safetensors archive
     let st_data = std::fs::read(&safetensors_path)
-        .with_context(|| format!("Failed to read {}", safetensors_path.display()))?;
+        .map_err(|e| ExperaiError::Export(format!("Failed to read {}: {}", safetensors_path.display(), e)))?;
     let st = SafeTensors::deserialize(&st_data)
-        .with_context(|| "Failed to deserialize safetensors")?;
+        .map_err(|e| ExperaiError::Export(format!("Failed to deserialize safetensors: {}", e)))?;
 
     let names = st.names();
     info!("Found {} tensors in checkpoint", names.len());
@@ -172,20 +171,21 @@ pub fn export_to_gguf(
     let lmstudio_base = match lmstudio_dir {
         Some(dir) => PathBuf::from(dir),
         None => {
-            let home = std::env::var("HOME").context("HOME not set")?;
+            let home = std::env::var("HOME").map_err(|_| ExperaiError::Config("HOME not set".to_string()))?;
             PathBuf::from(home).join(".lmstudio").join("models").join("custom")
         }
     };
 
     let output_dir = lmstudio_base.join(model_name);
     std::fs::create_dir_all(&output_dir)
-        .with_context(|| format!("Failed to create {}", output_dir.display()))?;
+        .map_err(|e| ExperaiError::Export(format!("Failed to create {}: {}", output_dir.display(), e)))?;
 
     let gguf_path = output_dir.join(format!("{}.gguf", model_name));
     info!("Writing GGUF to {}", gguf_path.display());
 
     // Initialize GGUF writer (version 3)
-    let mut writer = GGUFWriter::new(&gguf_path, 3)?;
+    let mut writer = GGUFWriter::new(&gguf_path, 3)
+        .map_err(|e| ExperaiError::Export(format!("Failed to create GGUF writer: {}", e)))?;
 
     // Write architecture and hyperparameter metadata
     writer.add_metadata("general.architecture", "gpt2");
@@ -216,7 +216,7 @@ pub fn export_to_gguf(
     for (candle_name, gguf_name) in &ordered_names {
         let tensor = st
             .tensor(candle_name)
-            .with_context(|| format!("Failed to read tensor {}", candle_name))?;
+            .map_err(|e| ExperaiError::Export(format!("Failed to read tensor {}: {}", candle_name, e)))?;
 
         let dtype = safetensors_dtype_to_ggml(tensor.dtype())?;
         let shape: Vec<u64> = tensor.shape().iter().map(|&s| s as u64).collect();
@@ -238,14 +238,16 @@ pub fn export_to_gguf(
     }
 
     // Write the GGUF header and tensor info section
-    writer.write()?;
+    writer.write()
+        .map_err(|e| ExperaiError::Export(format!("Failed to write GGUF header: {}", e)))?;
 
-    // Write raw tensor data in the same order as registration
     for (i, (_name, data, _shape, _dtype)) in tensor_data_map.iter().enumerate() {
-        writer.write_tensor_data(i, data)?;
+        writer.write_tensor_data(i, data)
+            .map_err(|e| ExperaiError::Export(format!("Failed to write tensor data: {}", e)))?;
     }
 
-    writer.finalize()?;
+    writer.finalize()
+        .map_err(|e| ExperaiError::Export(format!("Failed to finalize GGUF: {}", e)))?;
 
     // Copy model_config.json alongside the GGUF for runtime reference
     let config_dest = output_dir.join("model_config.json");
@@ -253,11 +255,11 @@ pub fn export_to_gguf(
         checkpoint_dir.join("model_config.json"),
         &config_dest,
     )
-    .with_context(|| {
-        format!(
-            "Failed to copy model_config.json to {}",
-            config_dest.display()
-        )
+    .map_err(|e| {
+        ExperaiError::Export(format!(
+            "Failed to copy model_config.json to {}: {}",
+            config_dest.display(), e
+        ))
     })?;
 
     let gguf_size = std::fs::metadata(&gguf_path)?.len();

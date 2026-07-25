@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use crate::errors::ExperaiError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
@@ -30,7 +30,7 @@ pub struct Dataset {
 impl Dataset {
     /// Load a dataset from a JSONL file. Each line must contain a `"text"` field;
     /// optional `"label"` and `"did"` fields are captured if present.
-    pub fn from_jsonl(path: &str, tokenizer: Tokenizer, max_length: usize) -> Result<Self> {
+    pub fn from_jsonl(path: &str, tokenizer: Tokenizer, max_length: usize) -> Result<Self, ExperaiError> {
         info!("Loading dataset from JSONL: {} (max_length={})", path, max_length);
         let file = File::open(path)?;
         let reader = BufReader::new(file);
@@ -41,11 +41,11 @@ impl Dataset {
             let parsed: HashMap<String, String> = serde_json::from_str(&line)?;
             let text = parsed
                 .get("text")
-                .ok_or_else(|| anyhow!("Missing 'text' field in line {}", idx))?;
+                .ok_or_else(|| ExperaiError::Data(format!("Missing 'text' field in line {}", idx)))?;
 
             let encoding = tokenizer
                 .encode(text.as_str(), true)
-                .map_err(|e| anyhow!("Tokenization error: {}", e))?;
+                .map_err(ExperaiError::Tokenization)?;
             let tokens = encoding.get_ids().to_vec();
 
             samples.push(DatasetSample {
@@ -73,13 +73,16 @@ impl Dataset {
         handle: &str,
         max_samples: usize,
         tokenizer: Tokenizer,
-    ) -> Result<Self> {
+    ) -> Result<Self, ExperaiError> {
         let max_length = 512;
         let mut samples = Vec::new();
 
         let client = ATProtocolClient::new(pds_url);
 
-        let did = client.resolve_handle(handle).await?;
+        let did = client
+            .resolve_handle(handle)
+            .await
+            .map_err(|e| ExperaiError::AtProtocol(format!("failed to resolve handle {handle}: {e}")))?;
         info!(
             "Resolved DID: {} for handle: {} on PDS: {}",
             did, handle, pds_url
@@ -87,7 +90,8 @@ impl Dataset {
 
         let records = client
             .list_records_paginated(&did, "app.bsky.feed.post", max_samples)
-            .await?;
+            .await
+            .map_err(|e| ExperaiError::AtProtocol(format!("failed to list records for {did}: {e}")))?;
         info!("Found {} records for DID: {}", records.len(), did);
 
         for (_uri, _cid, value) in records {
@@ -95,7 +99,7 @@ impl Dataset {
                 let did = value.get("did").and_then(|v| v.as_str()).map(|s| s.to_string());
                 let tokens = tokenizer
                     .encode(text.as_str(), true)
-                    .map_err(|e| anyhow!("Tokenization error: {}", e))?
+                    .map_err(ExperaiError::Tokenization)?
                     .get_ids()
                     .to_vec();
 
