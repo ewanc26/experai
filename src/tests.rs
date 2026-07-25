@@ -212,9 +212,62 @@ mod tests {
     #[test]
     fn test_hardware_profile_detect() {
         let profile = crate::utils::HardwareProfile::detect();
-        assert!(!profile.device_name.is_empty());
         assert!(profile.cpu_cores > 0);
-        assert!(profile.ram_mb > 0);
+        assert!(profile.total_ram_mb > 0);
+    }
+
+    #[test]
+    fn test_auto_tuner_gpu_strategy() {
+        let profile = crate::utils::HardwareProfile {
+            cpu_cores: 8,
+            total_ram_mb: 32768,
+            gpu_vram_mb: Some(24000),
+            gpu_kind: Some(crate::utils::GpuKind::Cuda),
+            gpu_name: Some("RTX 3090".to_string()),
+        };
+        let params = crate::utils::AutoTuner::recommend(&profile);
+        assert_eq!(params.batch_size, 64);
+        assert_eq!(params.precision, "bf16");
+        assert_eq!(params.max_seq_len, 1024);
+
+        let profile_small = crate::utils::HardwareProfile {
+            cpu_cores: 4,
+            total_ram_mb: 16384,
+            gpu_vram_mb: Some(8000),
+            gpu_kind: Some(crate::utils::GpuKind::Cuda),
+            gpu_name: Some("GTX 1070".to_string()),
+        };
+        let params = crate::utils::AutoTuner::recommend(&profile_small);
+        assert_eq!(params.batch_size, 16);
+        assert_eq!(params.precision, "f32");
+        assert_eq!(params.max_seq_len, 512);
+    }
+
+    #[test]
+    fn test_auto_tuner_cpu_strategy() {
+        let profile = crate::utils::HardwareProfile {
+            cpu_cores: 8,
+            total_ram_mb: 32768,
+            gpu_vram_mb: None,
+            gpu_kind: None,
+            gpu_name: None,
+        };
+        let params = crate::utils::AutoTuner::recommend(&profile);
+        assert_eq!(params.batch_size, 16);
+        assert_eq!(params.precision, "f32");
+        assert_eq!(params.max_seq_len, 512);
+
+        let profile_tiny = crate::utils::HardwareProfile {
+            cpu_cores: 2,
+            total_ram_mb: 4096,
+            gpu_vram_mb: None,
+            gpu_kind: None,
+            gpu_name: None,
+        };
+        let params = crate::utils::AutoTuner::recommend(&profile_tiny);
+        assert_eq!(params.batch_size, 4);
+        assert_eq!(params.precision, "f32");
+        assert_eq!(params.max_seq_len, 128);
     }
 
     #[test]

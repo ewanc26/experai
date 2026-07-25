@@ -1,15 +1,16 @@
 use std::fs::File;
 use std::io::Write;
+use std::collections::HashMap;
 use tempfile::tempdir;
 use tokenizers::models::bpe::BPE;
-use tokenizers::pre_tokenizers::whitespace::Whitespace;
+use tokenizers::Tokenizer;
 
 use experai::data::Dataset;
 use experai::model::ModelConfig;
 use experai::training::{Trainer, TrainingConfig};
 
 fn create_test_tokenizer() -> tokenizers::Tokenizer {
-    let mut vocab: ahash::AHashMap<String, u32> = ahash::AHashMap::new();
+    let mut vocab: HashMap<String, u32> = HashMap::new();
 
     vocab.insert("[PAD]".to_string(), 0);
     vocab.insert("[UNK]".to_string(), 100);
@@ -58,8 +59,8 @@ fn create_test_tokenizer() -> tokenizers::Tokenizer {
     }
 
     let bpe = BPE::new(vocab, Vec::<(String, String)>::new());
-    let mut tokenizer = tokenizers::Tokenizer::new(bpe);
-    tokenizer.with_pre_tokenizer(Some(Whitespace::default()));
+    let mut tokenizer = Tokenizer::new(bpe);
+    tokenizer.with_pre_tokenizer(tokenizers::pre_tokenizers::whitespace::Whitespace);
     tokenizer
 }
 
@@ -121,6 +122,9 @@ fn test_full_training_pipeline() {
         weight_decay: 0.01,
         max_grad_norm: 1.0,
         seed: 42,
+        enable_load_monitoring: false,
+        max_cpu_load: 0.8,
+        load_check_interval: 10,
     };
 
     let mut trainer = Trainer::new(train_config, model_config).unwrap();
