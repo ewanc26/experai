@@ -34,11 +34,13 @@ mod tests {
                 text: "hello world".to_string(),
                 tokens: vec![5, 10, 2],
                 label: None,
+                did: None,
             },
             DatasetSample {
                 text: "foo bar".to_string(),
                 tokens: vec![8, 12],
                 label: None,
+                did: None,
             },
         ];
         let (input_ids, _attention_mask) = collator.collate(&samples).unwrap();
@@ -139,6 +141,8 @@ mod tests {
             remove_emails: false,
             min_length: 0,
             max_length: 1024,
+            dedupe: false,
+            clean: false,
         };
         cleanup_fn(&mut config);
         make_preprocessor(config)

@@ -3,7 +3,7 @@
 # Experai Project Guide
 
 ## Project Overview
-Experai is a small language model training toolkit built in Rust using the Candle ML framework with CUDA acceleration. It provides CLI commands for training, preprocessing, and text generation.
+Experai is a small language model training toolkit built in Rust using the Candle ML framework with CUDA/Metal acceleration. It provides CLI commands for training, preprocessing, and text generation.
 
 ## Repository Structure
 ```
@@ -105,8 +105,18 @@ experai
 
 ### Cargo Features
 - Default: `cuda` (requires NVIDIA driver + CUDA toolkit)
-- Optional: `metal` (Apple Silicon), `mkl` (Intel MKL BLAS), `accelerate` (Apple Accelerate)
+- Optional: `metal` (Apple Silicon / macOS), `mkl` (Intel MKL BLAS), `accelerate` (Apple Accelerate)
+- On macOS, always build with `--no-default-features --features metal` (the default `cuda` feature will fail without CUDA)
 - Test all feature combinations in CI
+
+### Tokenizer Setup
+- The tokenizer file at `models/tokenizer.json` must be a valid HuggingFace `tokenizers` format JSON file
+- The `models/` directory is gitignored, so the tokenizer must be fetched on each machine:
+  ```bash
+  curl -sL "https://huggingface.co/gpt2/resolve/main/tokenizer.json" -o models/tokenizer.json
+  ```
+- Custom hand-crafted tokenizer JSON files (with top-level `vocab`/`merges` instead of the HuggingFace schema) will fail with `ModelWrapper` deserialization errors
+- The `tokenizers` crate (v0.19) expects the standard HuggingFace tokenizer.json schema with `model`, `normalizer`, `pre_tokenizer`, `post_processor`, and `decoder` fields
 
 ### Environment Variables
 - `EXPERAI_DEVICE`: override device selection (`cuda:0`, `metal`, `cpu`)

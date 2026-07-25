@@ -16,15 +16,27 @@ A small language model training toolkit built in Rust using the Candle ML framew
 git clone https://github.com/yourusername/experai.git
 cd experai
 
-# Build with default features (CPU)
+# Build with CUDA support (default, requires NVIDIA driver + CUDA toolkit)
 cargo build --release
 
-# Build with CUDA support
-cargo build --release --features cuda
+# Build with Metal support (Apple Silicon / macOS)
+cargo build --release --no-default-features --features metal
 
-# Build with Metal support (Apple Silicon)
-cargo build --release --features metal
+# Build with CPU only (no GPU acceleration)
+cargo build --release --no-default-features
 ```
+
+> **Note for macOS users:** The default `cuda` feature will fail to build on macOS. Use `--no-default-features --features metal` instead.
+
+### Tokenizer
+
+The tokenizer file (`models/tokenizer.json`) is required for all commands. It must be a valid HuggingFace `tokenizers` format JSON file (not a custom vocab/merges file). Download the GPT-2 tokenizer:
+
+```bash
+curl -sL "https://huggingface.co/gpt2/resolve/main/tokenizer.json" -o models/tokenizer.json
+```
+
+The `models/` directory is gitignored, so each machine needs to fetch the tokenizer separately.
 
 ## Quick Start
 

@@ -14,6 +14,7 @@ pub struct DatasetSample {
     pub text: String,
     pub tokens: Vec<u32>,
     pub label: Option<String>,
+    pub did: Option<String>,
 }
 
 pub struct Dataset {
@@ -56,6 +57,7 @@ impl Dataset {
                 text: text.to_string(),
                 tokens,
                 label: parsed.get("label").cloned(),
+                did: parsed.get("did").cloned(),
             });
         }
 
@@ -90,6 +92,7 @@ impl Dataset {
                 text: text.to_string(),
                 tokens,
                 label: record.get("label").cloned(),
+                did: record.get("did").cloned(),
             });
         }
 
@@ -124,6 +127,7 @@ impl Dataset {
 
         for (_uri, _cid, value) in records {
             if let Some(text) = extract_text_from_value(&value) {
+                let did = value.get("did").and_then(|v| v.as_str()).map(|s| s.to_string());
                 let tokens = tokenizer
                     .encode(text.as_str(), true)
                     .map_err(|e| anyhow!("Tokenization error: {}", e))?
@@ -136,6 +140,7 @@ impl Dataset {
                     text,
                     tokens,
                     label: Some("at_protocol".to_string()),
+                    did,
                 });
             }
 

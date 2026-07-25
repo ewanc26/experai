@@ -47,13 +47,28 @@ enum Commands {
     /// Preprocess text data for training
     Preprocess {
         #[arg(short = 'i', long)]
-        input: String,
+        input: Option<String>,
         #[arg(short = 'o', long)]
         output: String,
         #[arg(short = 't', long)]
         tokenizer: String,
         #[arg(short = 'l', long, default_value = "512")]
         max_length: usize,
+        /// ATProto handle to fetch live Jetstream data (e.g., ewancroft.uk)
+        #[arg(long)]
+        atproto_handle: Option<String>,
+        /// ATProto collection to subscribe to (default: app.bsky.feed.post)
+        #[arg(long, default_value = "app.bsky.feed.post")]
+        collection: String,
+        /// Remove duplicate posts during preprocessing
+        #[arg(long)]
+        dedupe: bool,
+        /// Clean text (remove URLs, emails, HTML tags, extra whitespace)
+        #[arg(long)]
+        clean: bool,
+        /// Filter by specific DIDs (empty = capture all DIDs)
+        #[arg(short = 'd', long)]
+        dids: Vec<String>,
     },
     /// Generate text from a trained model
     Generate {
@@ -228,15 +243,70 @@ fn main() -> Result<()> {
             output,
             tokenizer,
             max_length,
+            atproto_handle,
+            collection,
+            dedupe,
+            clean,
+            dids,
         } => {
             info!(
-                "Starting preprocessing: input={}, output={}, tokenizer={}, max_length={}",
-                input, output, tokenizer, max_length
+                "Starting preprocessing: output={}, tokenizer={}, max_length={}, dedupe={}, clean={}",
+                output, tokenizer, max_length, dedupe, clean
             );
+
             let tok = load_tokenizer(&tokenizer)?;
-            let preprocessor = Preprocessor::new(tok, None);
-            preprocessor.preprocess_file(&input, &output)?;
-            info!("Preprocessing complete: {} -> {}", input, output);
+
+            if let Some(handle) = atproto_handle {
+                info!(
+                    "Fetching live Jetstream data from handle={}, collection={}, dids={:?}",
+                    handle, collection, dids
+                );
+
+                let jetstream_config = experai::jetstream::JetstreamConfig {
+                    host: "jetstream2.us-east.bsky.network".to_string(),
+                    collections: vec![collection.clone()],
+                    dids: dids.clone(),
+                    max_samples: 10000,
+                    batch_size: 100,
+                    max_duration_secs: 3600,
+                    compression: true,
+                };
+
+                let rt = tokio::runtime::Runtime::new()?;
+                let (dataset, stats) = rt.block_on(experai::jetstream::collect_from_jetstream(
+                    &jetstream_config,
+                    tok.clone(),
+                ))?;
+
+                info!(
+                    "Collected {} posts from Jetstream ({:.1}s, {:.1} posts/s)",
+                    stats.valid_posts, stats.duration_secs, stats.posts_per_second
+                );
+
+                let mut preprocessor = Preprocessor::new(tok, None);
+                preprocessor.config.dedupe = dedupe;
+                preprocessor.config.clean = clean;
+                preprocessor.config.max_length = max_length;
+
+                preprocessor.save_dataset_to_jsonl(&dataset, &output)?;
+                info!(
+                    "Preprocessing complete: {} samples saved to {}",
+                    dataset.len(),
+                    output
+                );
+            } else {
+                let input_path = input
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--input is required when not using --atproto-handle"))?;
+
+                let mut preprocessor = Preprocessor::new(tok, None);
+                preprocessor.config.dedupe = dedupe;
+                preprocessor.config.clean = clean;
+                preprocessor.config.max_length = max_length;
+
+                preprocessor.preprocess_file(input_path, &output)?;
+                info!("Preprocessing complete: {} -> {}", input_path, output);
+            }
         }
         Commands::Generate {
             model,
@@ -467,6 +537,9 @@ fn main() -> Result<()> {
                 weight_decay: 0.01,
                 max_grad_norm: 1.0,
                 seed: 42,
+                enable_load_monitoring: true,
+                max_cpu_load: 0.80,
+                load_check_interval: 10,
             };
 
             // Apply auto-tuning if requested

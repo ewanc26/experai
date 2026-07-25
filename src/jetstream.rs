@@ -125,6 +125,7 @@ pub async fn collect_from_jetstream(
                     text: post.text.clone(),
                     tokens: Vec::new(), // Will be tokenized later
                     label: Some(format!("jetstream:{}", post.did)),
+                    did: Some(post.did.clone()),
                 };
 
                 if should_include_post(&post, &dids_filter) {
