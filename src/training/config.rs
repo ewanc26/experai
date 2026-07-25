@@ -41,6 +41,8 @@ pub struct TrainingConfig {
     /// Minimum free memory (in MB) to maintain.  If available memory
     /// drops below this, training pauses to avoid swapping.
     pub min_free_mem_mb: u64,
+    /// Minimum learning rate as a fraction of peak LR for cosine annealing.
+    pub min_lr_ratio: f64,
 }
 
 impl Default for TrainingConfig {
@@ -66,6 +68,7 @@ impl Default for TrainingConfig {
             max_swap_usage: 0.0,
             // Keep at least 2 GB free for the OS and other processes.
             min_free_mem_mb: 2048,
+            min_lr_ratio: 0.1,
         }
     }
 }

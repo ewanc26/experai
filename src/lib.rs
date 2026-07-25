@@ -4,6 +4,8 @@ pub mod at_protocol;
 pub mod commands;
 /// Dataset loading, tokenization, and batching.
 pub mod data;
+/// Typed error types for the library.
+pub mod errors;
 /// Checkpoint export to GGUF format.
 pub mod export;
 /// Live streaming from the AT Protocol Jetstream.
@@ -18,3 +20,6 @@ pub mod preprocessing;
 pub mod training;
 /// Shared utilities: device detection, metrics, seeds.
 pub mod utils;
+
+#[cfg(test)]
+mod tests;

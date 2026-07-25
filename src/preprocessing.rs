@@ -1,4 +1,5 @@
-use anyhow::Result;
+use crate::errors::ExperaiError;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -6,6 +7,19 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use tokenizers::{Encoding, Tokenizer};
 use tracing::{debug, event, info, Level};
+
+// These patterns are compile-time constants, so compilation cannot fail at runtime;
+// `expect` documents that rather than silently swallowing a programming error.
+static RE_HTML: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"<[^>]*>").expect("RE_HTML is a valid regex"));
+static RE_URL: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"https?://[^\s]+").expect("RE_URL is a valid regex"));
+static RE_EMAIL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+        .expect("RE_EMAIL is a valid regex")
+});
+static RE_WHITESPACE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\s+").expect("RE_WHITESPACE is a valid regex"));
 
 use crate::data::Dataset;
 
@@ -75,28 +89,21 @@ impl Preprocessor {
         let mut cleaned = text.to_string();
 
         if self.config.remove_html_tags {
-            // Strip any HTML/XML tags (e.g. <p>, <br/>, <span class="x">)
-            let html_regex = Regex::new(r"<[^>]*>").unwrap();
-            cleaned = html_regex.replace_all(&cleaned, "").to_string();
+            cleaned = RE_HTML.replace_all(&cleaned, "").to_string();
         }
 
         if self.config.remove_urls {
-            // Replace http/https URLs with a placeholder
-            let url_regex = Regex::new(r"https?://[^\s]+").unwrap();
-            cleaned = url_regex.replace_all(&cleaned, "[URL]").to_string();
+            cleaned = RE_URL.replace_all(&cleaned, "[URL]").to_string();
         }
 
         if self.config.remove_emails {
-            // Replace standard email patterns with a placeholder
-            let email_regex =
-                Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap();
-            cleaned = email_regex.replace_all(&cleaned, "[EMAIL]").to_string();
+            cleaned = RE_EMAIL
+                .replace_all(&cleaned, "[EMAIL]")
+                .to_string();
         }
 
         if self.config.remove_extra_whitespace {
-            // Collapse all whitespace runs (spaces, tabs, newlines) to a single space
-            let ws_regex = Regex::new(r"\s+").unwrap();
-            cleaned = ws_regex.replace_all(&cleaned, " ").to_string();
+            cleaned = RE_WHITESPACE.replace_all(&cleaned, " ").to_string();
             cleaned = cleaned.trim().to_string();
         }
 
@@ -122,7 +129,7 @@ impl Preprocessor {
     ///
     /// Writes enriched JSONL to `output_path` with `"text"` (cleaned) and
     /// `"tokens"` (token IDs) fields added.
-    pub fn preprocess_file(&self, input_path: &str, output_path: &str) -> Result<()> {
+    pub fn preprocess_file(&self, input_path: &str, output_path: &str) -> Result<(), ExperaiError> {
         info!("Preprocessing file: {} -> {}", input_path, output_path);
         let input_file = File::open(input_path)?;
         let reader = BufReader::new(input_file);
@@ -149,7 +156,7 @@ impl Preprocessor {
                     let tokens = self
                         .tokenizer
                         .encode(cleaned.as_str(), true)
-                        .map_err(|e| anyhow::anyhow!("{}", e))?;
+                        .map_err(ExperaiError::Tokenization)?;
 
                     // Only keep samples with enough tokens
                     if tokens.get_ids().len() >= self.config.min_length {
@@ -195,7 +202,7 @@ impl Preprocessor {
     ///
     /// Applies optional cleaning and deduplication per sample. Each line
     /// contains `"text"`, `"tokens"`, and `"did"` fields.
-    pub fn save_dataset_to_jsonl(&self, dataset: &Dataset, output_path: &str) -> Result<()> {
+    pub fn save_dataset_to_jsonl(&self, dataset: &Dataset, output_path: &str) -> Result<(), ExperaiError> {
         info!("Saving {} samples to {}", dataset.len(), output_path);
         let mut output_file = File::create(output_path)?;
         let mut seen_texts = if self.config.dedupe {
@@ -221,7 +228,7 @@ impl Preprocessor {
             let tokens = self
                 .tokenizer
                 .encode(cleaned.as_str(), true)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+                .map_err(ExperaiError::Tokenization)?;
 
             let token_ids = tokens.get_ids().to_vec();
 
@@ -238,7 +245,7 @@ impl Preprocessor {
     }
 
     /// Tokenize a batch of text strings, applying the cleaning pipeline first.
-    pub fn tokenize_batch(&self, texts: &[String]) -> Result<Vec<Encoding>> {
+    pub fn tokenize_batch(&self, texts: &[String]) -> Result<Vec<Encoding>, ExperaiError> {
         debug!("Tokenizing batch of {} texts", texts.len());
         let mut encodings = Vec::with_capacity(texts.len());
 
@@ -247,7 +254,7 @@ impl Preprocessor {
             let encoding = self
                 .tokenizer
                 .encode(cleaned.as_str(), true)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+                .map_err(ExperaiError::Tokenization)?;
             encodings.push(encoding);
         }
 

@@ -306,6 +306,6 @@ mod tests {
         let monitor = SystemLoadMonitor::new(SystemLoadConfig::default());
         let swap = monitor.swap_usage();
         println!("Swap usage: {:.2}%", swap * 100.0);
-        assert!(swap >= 0.0 && swap <= 1.0);
+        assert!((0.0..=1.0).contains(&swap));
     }
 }

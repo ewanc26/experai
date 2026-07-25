@@ -462,7 +462,7 @@ pub fn load_jetstream_dataset(
     path: &str,
     tokenizer: tokenizers::Tokenizer,
     max_length: usize,
-) -> Result<Dataset> {
+) -> Result<Dataset, crate::errors::ExperaiError> {
     info!(
         "Loading Jetstream dataset from {} (max_length={})",
         path, max_length

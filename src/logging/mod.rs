@@ -14,9 +14,13 @@ use tracing_subscriber::{fmt, EnvFilter};
 ///   Defaults to `"info"` when `None`.
 /// * `test_mode` - When `true`, uses the pretty-print formatter for
 ///   human-readable output; otherwise emits JSON logs.
-pub fn init_logger(log_level: Option<String>, test_mode: bool) -> anyhow::Result<()> {
+pub fn init_logger(log_level: Option<String>, test_mode: bool) -> Result<(), crate::errors::ExperaiError> {
     let level = log_level.unwrap_or_else(|| "info".to_string());
-    let env_filter = EnvFilter::try_new(&level)?;
+    let env_filter = EnvFilter::try_new(&level).map_err(|e| {
+        crate::errors::ExperaiError::Config(format!(
+            "invalid log level {level:?}: {e} (expected one of trace|debug|info|warn|error)"
+        ))
+    })?;
 
     if test_mode {
         tracing_subscriber::registry()

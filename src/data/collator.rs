@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::errors::ExperaiError;
 use candle_core::Tensor;
 use tracing::trace;
 
@@ -22,7 +22,7 @@ impl DataCollator {
     /// Collate samples into `(input_ids, attention_mask)` tensors of shape
     /// `(batch_size, max_len)`. Sequences shorter than `max_len` are right-padded;
     /// longer sequences are truncated to `max_length`.
-    pub fn collate(&self, samples: &[DatasetSample]) -> Result<(Tensor, Tensor)> {
+    pub fn collate(&self, samples: &[DatasetSample]) -> Result<(Tensor, Tensor), ExperaiError> {
         let batch_size = samples.len();
         // Use the longest sequence in the batch, capped by max_length
         let max_len = samples
