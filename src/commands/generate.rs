@@ -1,10 +1,10 @@
-use anyhow::Result;
-use candle_core::IndexOp;
-use candle_nn::Module;
 use crate::data::load_tokenizer;
 use crate::model::ModelConfig;
 use crate::utils;
-use tracing::{info, warn, debug};
+use anyhow::Result;
+use candle_core::IndexOp;
+use candle_nn::Module;
+use tracing::{debug, info, warn};
 
 /// Run autoregressive text generation from a prompt using a trained model.
 pub fn run(
@@ -49,8 +49,7 @@ pub fn run(
     );
     let mut generated = input_ids.clone();
     for step in 0..max_tokens {
-        let input_tensor =
-            candle_core::Tensor::new(generated.clone(), &device)?.unsqueeze(0)?;
+        let input_tensor = candle_core::Tensor::new(generated.clone(), &device)?.unsqueeze(0)?;
 
         let logits = model_arch.forward(&input_tensor)?;
         let seq_len = logits.dim(1)?;
@@ -63,7 +62,12 @@ pub fn run(
         generated.push(next_token as u32);
 
         if step % 10 == 0 {
-            debug!("Generation step {}/{}: token_id={}", step + 1, max_tokens, next_token);
+            debug!(
+                "Generation step {}/{}: token_id={}",
+                step + 1,
+                max_tokens,
+                next_token
+            );
         }
 
         if next_token == model_config.eos_token_id {

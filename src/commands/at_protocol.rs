@@ -1,9 +1,9 @@
-use anyhow::Result;
 use crate::at_protocol::ATProtocolConfig;
 use crate::data::{load_tokenizer, Dataset};
 use crate::model::ModelConfig;
 use crate::training::{Trainer, TrainingConfig};
 use crate::utils;
+use anyhow::Result;
 use tracing::info;
 
 /// Run the end-to-end pipeline: fetch posts from an AT Protocol PDS, save them, and train.

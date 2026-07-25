@@ -221,8 +221,8 @@ fn main() -> Result<()> {
             resume,
         } => {
             experai::commands::train::run(
-                model, data, lr, epochs, batch_size, grad_accum,
-                output_dir, tokenizer, auto_tune, resume,
+                model, data, lr, epochs, batch_size, grad_accum, output_dir, tokenizer, auto_tune,
+                resume,
             )?;
         }
         Commands::Preprocess {
@@ -237,8 +237,15 @@ fn main() -> Result<()> {
             dids,
         } => {
             experai::commands::preprocess::run(
-                input, output, tokenizer, max_length, atproto_handle,
-                collection, dedupe, clean, dids,
+                input,
+                output,
+                tokenizer,
+                max_length,
+                atproto_handle,
+                collection,
+                dedupe,
+                clean,
+                dids,
             )?;
         }
         Commands::Generate {
@@ -251,7 +258,13 @@ fn main() -> Result<()> {
             tokenizer,
         } => {
             experai::commands::generate::run(
-                model, prompt, max_tokens, temperature, top_k, top_p, tokenizer,
+                model,
+                prompt,
+                max_tokens,
+                temperature,
+                top_k,
+                top_p,
+                tokenizer,
             )?;
         }
         Commands::AtProtocol {
@@ -267,8 +280,16 @@ fn main() -> Result<()> {
             tokenizer,
         } => {
             experai::commands::at_protocol::run(
-                pds_url, handle, max_samples, output_dir, model_name,
-                lr, epochs, batch_size, grad_accum, tokenizer,
+                pds_url,
+                handle,
+                max_samples,
+                output_dir,
+                model_name,
+                lr,
+                epochs,
+                batch_size,
+                grad_accum,
+                tokenizer,
             )?;
         }
         Commands::JetstreamTrain {
@@ -287,9 +308,19 @@ fn main() -> Result<()> {
             auto_tune,
         } => {
             experai::commands::jetstream_train::run(
-                jetstream_host, collections, dids, max_samples, max_duration_secs,
-                output_dir, model_name, lr, epochs, batch_size, grad_accum,
-                tokenizer, auto_tune,
+                jetstream_host,
+                collections,
+                dids,
+                max_samples,
+                max_duration_secs,
+                output_dir,
+                model_name,
+                lr,
+                epochs,
+                batch_size,
+                grad_accum,
+                tokenizer,
+                auto_tune,
             )?;
         }
         Commands::Package {

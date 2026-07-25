@@ -1,9 +1,9 @@
-use anyhow::Result;
 use crate::data::load_tokenizer;
 use crate::jetstream::JetstreamConfig;
 use crate::model::ModelConfig;
 use crate::training::{Trainer, TrainingConfig};
 use crate::utils;
+use anyhow::Result;
 use tracing::info;
 
 /// Run the end-to-end pipeline: collect posts from Jetstream, save them, and train.

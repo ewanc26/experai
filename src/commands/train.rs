@@ -1,8 +1,8 @@
-use anyhow::Result;
 use crate::data::{load_tokenizer, validate_dataset, Dataset};
 use crate::model::ModelConfig;
 use crate::training::{Trainer, TrainingConfig};
 use crate::utils;
+use anyhow::Result;
 use tracing::{info, warn};
 
 /// Run the training workflow: load data, build model, and train.

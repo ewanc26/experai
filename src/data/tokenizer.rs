@@ -7,9 +7,13 @@ use super::dataset::Dataset;
 /// Load a HuggingFace `tokenizers` JSON file from `path`.
 pub fn load_tokenizer(path: &str) -> Result<Tokenizer, ExperaiError> {
     info!("Loading tokenizer from {}", path);
-    let tokenizer = Tokenizer::from_file(path)
-        .map_err(|e| ExperaiError::ModelLoad(format!("Failed to load tokenizer from {}: {}", path, e)))?;
-    info!("Tokenizer loaded (vocab_size={})", tokenizer.get_vocab_size(true));
+    let tokenizer = Tokenizer::from_file(path).map_err(|e| {
+        ExperaiError::ModelLoad(format!("Failed to load tokenizer from {}: {}", path, e))
+    })?;
+    info!(
+        "Tokenizer loaded (vocab_size={})",
+        tokenizer.get_vocab_size(true)
+    );
     Ok(tokenizer)
 }
 

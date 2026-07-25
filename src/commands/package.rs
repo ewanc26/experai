@@ -13,12 +13,7 @@ pub fn run(
         checkpoint, name, dtype
     );
 
-    crate::export::export_to_gguf(
-        &checkpoint,
-        &name,
-        lmstudio_dir.as_deref(),
-        &dtype,
-    )?;
+    crate::export::export_to_gguf(&checkpoint, &name, lmstudio_dir.as_deref(), &dtype)?;
 
     Ok(())
 }

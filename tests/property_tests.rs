@@ -1,10 +1,10 @@
-use candle_core::{Device, Tensor, DType};
+use candle_core::{DType, Device, Tensor};
 use proptest::prelude::*;
 
-use experai::data::{DatasetSample, DataCollator};
+use experai::data::{DataCollator, DatasetSample};
 use experai::preprocessing::{PreprocessConfig, Preprocessor};
 use experai::training::{compute_loss, compute_perplexity, TrainingConfig};
-use experai::utils::{GradientAccumulator, check_value_in_range};
+use experai::utils::{check_value_in_range, GradientAccumulator};
 
 use tokenizers::models::bpe::BPE;
 use tokenizers::pre_tokenizers::byte_level::ByteLevel;

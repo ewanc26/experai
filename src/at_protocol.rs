@@ -112,8 +112,7 @@ impl ATProtocolClient {
 
         let mut records = Vec::new();
         for record in response.data.records {
-            let value =
-                serde_json::to_value(&record.data.value).unwrap_or(serde_json::Value::Null);
+            let value = serde_json::to_value(&record.data.value).unwrap_or(serde_json::Value::Null);
             let cid = serde_json::to_value(&record.data.cid)
                 .unwrap_or(serde_json::Value::Null)
                 .as_str()

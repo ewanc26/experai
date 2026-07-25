@@ -1,7 +1,7 @@
-use anyhow::Result;
 use crate::data::load_tokenizer;
 use crate::jetstream::JetstreamConfig;
 use crate::preprocessing::Preprocessor;
+use anyhow::Result;
 use tracing::info;
 
 /// Run the preprocessing pipeline, loading data from a file or live from AT Protocol Jetstream.
@@ -63,9 +63,9 @@ pub fn run(
             output
         );
     } else {
-        let input_path = input
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("--input is required when not using --atproto-handle"))?;
+        let input_path = input.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("--input is required when not using --atproto-handle")
+        })?;
 
         let mut preprocessor = Preprocessor::new(tok, None);
         preprocessor.config.dedupe = dedupe;
