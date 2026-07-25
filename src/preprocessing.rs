@@ -1,14 +1,32 @@
-use anyhow::Result;
+use crate::errors::ExperaiError;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use tokenizers::{Encoding, Tokenizer};
-use tracing::{event, info, debug, Level};
+use tracing::{debug, event, info, Level};
+
+// These patterns are compile-time constants, so compilation cannot fail at runtime;
+// `expect` documents that rather than silently swallowing a programming error.
+static RE_HTML: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"<[^>]*>").expect("RE_HTML is a valid regex"));
+static RE_URL: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"https?://[^\s]+").expect("RE_URL is a valid regex"));
+static RE_EMAIL: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+        .expect("RE_EMAIL is a valid regex")
+});
+static RE_WHITESPACE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\s+").expect("RE_WHITESPACE is a valid regex"));
 
 use crate::data::Dataset;
 
+/// Configuration for the text preprocessing pipeline.
+///
+/// Controls which cleaning steps are applied, length filtering thresholds,
+/// and deduplication behaviour.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreprocessConfig {
     pub lowercase: bool,
@@ -38,46 +56,49 @@ impl Default for PreprocessConfig {
     }
 }
 
+/// A preprocessing pipeline that applies text cleaning, tokenisation, length
+/// filtering, and optional deduplication.
 pub struct Preprocessor {
     pub config: PreprocessConfig,
     pub tokenizer: Tokenizer,
 }
 
 impl Preprocessor {
+    /// Create a new preprocessor with the given tokenizer and optional config.
     pub fn new(tokenizer: Tokenizer, config: Option<PreprocessConfig>) -> Self {
         let config = config.unwrap_or_default();
         info!(
             "Creating preprocessor: clean={}, dedupe={}, min_len={}, max_len={}",
             config.clean, config.dedupe, config.min_length, config.max_length
         );
-        Self {
-            tokenizer,
-            config,
-        }
+        Self { tokenizer, config }
     }
 
+    /// Apply the regex-based cleaning pipeline to a single text string.
+    ///
+    /// Steps (each gated by its `PreprocessConfig` flag, applied in order):
+    /// 1. Strip HTML tags → empty string
+    /// 2. Replace URLs → `[URL]` placeholder
+    /// 3. Replace email addresses → `[EMAIL]` placeholder
+    /// 4. Collapse runs of whitespace to a single space and trim
+    /// 5. Lowercase the entire string
     pub fn clean_text(&self, text: &str) -> String {
         let mut cleaned = text.to_string();
 
         if self.config.remove_html_tags {
-            let html_regex = Regex::new(r"<[^>]*>").unwrap();
-            cleaned = html_regex.replace_all(&cleaned, "").to_string();
+            cleaned = RE_HTML.replace_all(&cleaned, "").to_string();
         }
 
         if self.config.remove_urls {
-            let url_regex = Regex::new(r"https?://[^\s]+").unwrap();
-            cleaned = url_regex.replace_all(&cleaned, "[URL]").to_string();
+            cleaned = RE_URL.replace_all(&cleaned, "[URL]").to_string();
         }
 
         if self.config.remove_emails {
-            let email_regex =
-                Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap();
-            cleaned = email_regex.replace_all(&cleaned, "[EMAIL]").to_string();
+            cleaned = RE_EMAIL.replace_all(&cleaned, "[EMAIL]").to_string();
         }
 
         if self.config.remove_extra_whitespace {
-            let ws_regex = Regex::new(r"\s+").unwrap();
-            cleaned = ws_regex.replace_all(&cleaned, " ").to_string();
+            cleaned = RE_WHITESPACE.replace_all(&cleaned, " ").to_string();
             cleaned = cleaned.trim().to_string();
         }
 
@@ -88,6 +109,7 @@ impl Preprocessor {
         cleaned
     }
 
+    /// Remove duplicate texts, preserving the first occurrence of each.
     pub fn dedupe_text(&self, texts: &[String]) -> Vec<String> {
         let mut seen = HashSet::new();
         texts
@@ -97,7 +119,12 @@ impl Preprocessor {
             .collect()
     }
 
-    pub fn preprocess_file(&self, input_path: &str, output_path: &str) -> Result<()> {
+    /// Preprocess a JSONL file: clean, tokenize, filter by length, and
+    /// optionally deduplicate each record's `"text"` field.
+    ///
+    /// Writes enriched JSONL to `output_path` with `"text"` (cleaned) and
+    /// `"tokens"` (token IDs) fields added.
+    pub fn preprocess_file(&self, input_path: &str, output_path: &str) -> Result<(), ExperaiError> {
         info!("Preprocessing file: {} -> {}", input_path, output_path);
         let input_file = File::open(input_path)?;
         let reader = BufReader::new(input_file);
@@ -124,9 +151,11 @@ impl Preprocessor {
                     let tokens = self
                         .tokenizer
                         .encode(cleaned.as_str(), true)
-                        .map_err(|e| anyhow::anyhow!("{}", e))?;
+                        .map_err(ExperaiError::Tokenization)?;
 
+                    // Only keep samples with enough tokens
                     if tokens.get_ids().len() >= self.config.min_length {
+                        // Deduplicate by cleaned text content
                         if let Some(seen) = &mut seen_texts {
                             if !seen.insert(cleaned.clone()) {
                                 event!(
@@ -164,7 +193,15 @@ impl Preprocessor {
         Ok(())
     }
 
-    pub fn save_dataset_to_jsonl(&self, dataset: &Dataset, output_path: &str) -> Result<()> {
+    /// Save an in-memory [`Dataset`] to a JSONL file.
+    ///
+    /// Applies optional cleaning and deduplication per sample. Each line
+    /// contains `"text"`, `"tokens"`, and `"did"` fields.
+    pub fn save_dataset_to_jsonl(
+        &self,
+        dataset: &Dataset,
+        output_path: &str,
+    ) -> Result<(), ExperaiError> {
         info!("Saving {} samples to {}", dataset.len(), output_path);
         let mut output_file = File::create(output_path)?;
         let mut seen_texts = if self.config.dedupe {
@@ -180,6 +217,7 @@ impl Preprocessor {
                 sample.text.clone()
             };
 
+            // Skip duplicate texts when deduplication is enabled
             if let Some(seen) = &mut seen_texts {
                 if !seen.insert(cleaned.clone()) {
                     continue;
@@ -189,7 +227,7 @@ impl Preprocessor {
             let tokens = self
                 .tokenizer
                 .encode(cleaned.as_str(), true)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+                .map_err(ExperaiError::Tokenization)?;
 
             let token_ids = tokens.get_ids().to_vec();
 
@@ -205,7 +243,8 @@ impl Preprocessor {
         Ok(())
     }
 
-    pub fn tokenize_batch(&self, texts: &[String]) -> Result<Vec<Encoding>> {
+    /// Tokenize a batch of text strings, applying the cleaning pipeline first.
+    pub fn tokenize_batch(&self, texts: &[String]) -> Result<Vec<Encoding>, ExperaiError> {
         debug!("Tokenizing batch of {} texts", texts.len());
         let mut encodings = Vec::with_capacity(texts.len());
 
@@ -214,7 +253,7 @@ impl Preprocessor {
             let encoding = self
                 .tokenizer
                 .encode(cleaned.as_str(), true)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+                .map_err(ExperaiError::Tokenization)?;
             encodings.push(encoding);
         }
 
@@ -222,6 +261,7 @@ impl Preprocessor {
     }
 }
 
+/// Build a [`PreprocessConfig`] from individual flag values.
 #[allow(clippy::too_many_arguments)]
 pub fn build_preprocess_config(
     lowercase: bool,

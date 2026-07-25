@@ -41,6 +41,9 @@ fn training_config_has_defaults() {
     assert_eq!(config.gradient_accumulation_steps, 8);
     assert!(config.enable_load_monitoring);
     assert_eq!(config.max_cpu_load, 0.80);
+    // Swap avoidance: never allow swap, keep 2 GB free.
+    assert_eq!(config.max_swap_usage, 0.0);
+    assert_eq!(config.min_free_mem_mb, 2048);
 }
 
 #[test]
