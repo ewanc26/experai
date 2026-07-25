@@ -6,6 +6,7 @@ use atrium_api::types::string::Handle;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
+/// Configuration for fetching posts via the AT Protocol (used by Bluesky/PDS).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ATProtocolConfig {
     pub pds_url: String,
@@ -23,6 +24,7 @@ impl Default for ATProtocolConfig {
     }
 }
 
+/// A single post record fetched via the AT Protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ATProtocolSample {
     pub uri: String,
@@ -32,11 +34,13 @@ pub struct ATProtocolSample {
     pub author: String,
 }
 
+/// AT Protocol client for resolving handles and listing repository records.
 pub struct ATProtocolClient {
     client: AtpServiceClient<atrium_xrpc_client::reqwest::ReqwestClient>,
 }
 
 impl ATProtocolClient {
+    /// Create a new client pointed at the given PDS URL.
     pub fn new(pds_url: &str) -> Self {
         debug!("Creating AT Protocol client for PDS: {}", pds_url);
         let http_client = atrium_xrpc_client::reqwest::ReqwestClient::new(pds_url);
@@ -44,6 +48,7 @@ impl ATProtocolClient {
         Self { client }
     }
 
+    /// Resolve a Bluesky handle (e.g. `"alice.bsky.social"`) to a DID.
     pub async fn resolve_handle(&self, handle: &str) -> Result<String> {
         info!("Resolving handle: {}", handle);
         let response = self
@@ -67,6 +72,9 @@ impl ATProtocolClient {
         Ok(did)
     }
 
+    /// List records from a repository collection in a single page.
+    ///
+    /// Returns a list of `(uri, cid, value)` tuples for each record.
     pub async fn list_records(
         &self,
         repo: &str,
@@ -74,7 +82,10 @@ impl ATProtocolClient {
         limit: Option<u8>,
         cursor: Option<String>,
     ) -> Result<Vec<(String, String, serde_json::Value)>> {
-        debug!("Listing records: repo={}, collection={}, limit={:?}", repo, collection, limit);
+        debug!(
+            "Listing records: repo={}, collection={}, limit={:?}",
+            repo, collection, limit
+        );
         let params = ListRecordsParams {
             collection: collection
                 .parse()
@@ -110,10 +121,18 @@ impl ATProtocolClient {
             records.push((record.data.uri, cid, value));
         }
 
-        debug!("Listed {} records from collection '{}'", records.len(), collection);
+        debug!(
+            "Listed {} records from collection '{}'",
+            records.len(),
+            collection
+        );
         Ok(records)
     }
 
+    /// List records from a repository collection with automatic pagination.
+    ///
+    /// Fetches records in batches of up to 100, following the cursor until
+    /// `max_records` is reached or no more pages remain.
     pub async fn list_records_paginated(
         &self,
         repo: &str,
@@ -124,6 +143,7 @@ impl ATProtocolClient {
         let mut cursor: Option<String> = None;
 
         loop {
+            // Cap the batch size to remaining records needed
             let batch_size = (max_records - all_records.len()).min(100) as u8;
             if batch_size == 0 {
                 break;
@@ -173,27 +193,35 @@ impl ATProtocolClient {
                 all_records.push((record.data.uri, cid, value));
             }
 
+            // Fewer records than requested means we've reached the end
             if batch_len < batch_size as usize {
                 break;
             }
 
+            // Advance to the next page using the returned cursor
             cursor = response.data.cursor;
             if cursor.is_none() {
                 break;
             }
         }
 
-        info!("Paginated list complete: {} total records from collection '{}'", all_records.len(), collection);
+        info!(
+            "Paginated list complete: {} total records from collection '{}'",
+            all_records.len(),
+            collection
+        );
         Ok(all_records)
     }
 }
 
+/// An in-memory collection of AT Protocol post samples.
 pub struct ATProtocolDataset {
     pub config: ATProtocolConfig,
     pub samples: Vec<ATProtocolSample>,
 }
 
 impl ATProtocolDataset {
+    /// Create an empty dataset for the given configuration.
     pub fn new(config: ATProtocolConfig) -> Self {
         Self {
             config,
@@ -201,6 +229,11 @@ impl ATProtocolDataset {
         }
     }
 
+    /// Fetch posts from the AT Protocol and populate `self.samples`.
+    ///
+    /// Resolves the configured handle to a DID, then paginates through
+    /// the `app.bsky.feed.post` collection, extracting text and metadata
+    /// from each record.
     pub async fn load_from_at_protocol(&mut self) -> Result<()> {
         let client = ATProtocolClient::new(&self.config.pds_url);
 
@@ -234,19 +267,25 @@ impl ATProtocolDataset {
         Ok(())
     }
 
+    /// Return a slice of all loaded samples.
     pub fn get_samples(&self) -> &[ATProtocolSample] {
         &self.samples
     }
 
+    /// Return the number of loaded samples.
     pub fn len(&self) -> usize {
         self.samples.len()
     }
 
+    /// Return `true` if no samples have been loaded.
     pub fn is_empty(&self) -> bool {
         self.samples.is_empty()
     }
 }
 
+/// Extract and trim the `"text"` field from a record's JSON value.
+///
+/// Returns `None` if the field is missing, not a string, or empty after trimming.
 pub fn extract_text_from_value(value: &serde_json::Value) -> Option<String> {
     if let Some(text) = value.get("text").and_then(|v| v.as_str()) {
         let cleaned = text.trim();
@@ -257,6 +296,7 @@ pub fn extract_text_from_value(value: &serde_json::Value) -> Option<String> {
     None
 }
 
+/// Convenience function: resolve a handle, fetch posts, and return samples.
 pub async fn load_at_protocol_dataset(config: ATProtocolConfig) -> Result<Vec<ATProtocolSample>> {
     let mut dataset = ATProtocolDataset::new(config);
     dataset.load_from_at_protocol().await?;

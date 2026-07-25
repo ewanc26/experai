@@ -7,6 +7,9 @@ target/
 # IDE
 .idea/
 .vscode/
+
+# Local agent tooling state (nested worktrees, caches)
+.letta/
 *.swp
 *.swo
 *~
@@ -30,3 +33,4 @@ outputs/
 checkpoints/
 wandb/
 mlruns/
+output/
