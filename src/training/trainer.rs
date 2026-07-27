@@ -6,7 +6,7 @@ use std::path::Path;
 use tracing::{debug, info, trace};
 
 use crate::data::{DataCollator, Dataset};
-use crate::model::{build_model, ModelConfig, TransformerModel};
+use crate::model::{build_model, init_weights, ModelConfig, TransformerModel};
 use crate::utils::{self, GradientAccumulator, SystemLoadConfig, SystemLoadMonitor};
 
 use super::config::TrainingConfig;
@@ -69,11 +69,20 @@ impl Trainer {
             config.max_seq_len
         );
         let device = utils::select_optimal_device().device.to_candle()?;
+        // Best-effort: seeds any other backend-RNG usage (e.g. Dropout). This does
+        // *not* make weight init reproducible by itself — candle's CPU backend has
+        // no seeding API at all, and its Metal backend (0.9.2) accepts a seed but
+        // the kernel doesn't actually mix it into the output. `init_weights` below
+        // is what actually makes `config.seed` reproducible.
+        if let Err(e) = device.set_seed(config.seed) {
+            debug!("Device RNG does not support explicit seeding: {e}");
+        }
         let var_map = VarMap::new();
 
         let dtype = Self::precision_dtype_for(&config);
         let vb = VarBuilder::from_varmap(&var_map, dtype, &device);
         let model = build_model(&model_config, vb)?;
+        init_weights(&var_map, &model_config, &device, config.seed)?;
 
         let current_lr = config.learning_rate;
         let optimizer = AdamW::new(
@@ -130,16 +139,12 @@ impl Trainer {
             "Updating learning rate: {:.6} -> {:.6}",
             self.current_lr, new_lr
         );
-        self.optimizer = AdamW::new(
-            self.var_map.all_vars(),
-            candle_nn::ParamsAdamW {
-                lr: new_lr,
-                beta1: 0.9,
-                beta2: 0.999,
-                eps: 1e-8,
-                weight_decay: self.config.weight_decay,
-            },
-        )?;
+        // `set_learning_rate` mutates `AdamW`'s config in place. Rebuilding the
+        // optimizer via `AdamW::new` here would re-zero its first/second moment
+        // buffers and reset `step_t`, which — since the LR schedule changes on
+        // nearly every step — silently threw away Adam's momentum estimates
+        // and bias correction on almost every call.
+        self.optimizer.set_learning_rate(new_lr);
         self.current_lr = new_lr;
         Ok(())
     }
