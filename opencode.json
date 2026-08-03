@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "experai": {
+      "type": "local",
+      "command": ["node", "mcp/experai-server.mjs"],
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}

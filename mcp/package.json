@@ -1,0 +1,20 @@
+{
+  "name": "experai-mcp",
+  "version": "0.3.0",
+  "description": "MCP server exposing the experai training toolkit to opencode and other MCP clients",
+  "type": "module",
+  "bin": {
+    "experai-mcp": "experai-server.mjs"
+  },
+  "scripts": {
+    "start": "node experai-server.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.4.3"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "license": "AGPL-3.0"
+}
