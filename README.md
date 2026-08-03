@@ -234,6 +234,41 @@ cargo test -- --nocapture
 cargo test test_auto_tuner
 ```
 
+## opencode integration
+
+The repo ships with opencode (https://opencode.ai) integrations that let you drive
+the toolkit from an agent or the TUI:
+
+- **Plugin** — `.opencode/plugin/experai.ts` registers `experai_*` tools
+  (`experai_support`, `experai_generate`, `experai_train`, `experai_preprocess`,
+  `experai_package`, `experai_atprotocol`, `experai_jetstream`,
+  `experai_commands`) that shell out to the compiled binary.
+- **Slash command** — `/experai <args>` runs the CLI and summarizes the result.
+- **MCP server** — `mcp/experai-server.mjs` exposes the same capabilities as
+  standard MCP tools (usable by opencode and any other MCP client). It is wired
+  up in `opencode.json`; the plugin tools are auto-discovered from
+  `.opencode/plugin/`.
+
+The integrations call `./target/release/experai` (falling back to
+`target/debug/experai`, then `experai` on `PATH`). Set `EXPERAI_BIN` to point
+at a specific binary. The binary is resolved at runtime, so
+`cargo build --release --no-default-features --features metal` must have been
+run at least once.
+
+Set up the MCP server dependencies once:
+
+```bash
+cd mcp && npm install
+```
+
+Machine-readable output is available for tooling:
+
+```bash
+experai --support --json   # structured sponsor links
+experai --json             # CLI metadata: name, version, subcommands
+experai generate --model output --prompt "..." --json   # {"text": "...", "tokens": N}
+```
+
 ## Support
 
 If you find this project useful, consider supporting its development:
