@@ -4,21 +4,25 @@
 //! command handlers in [`experai::commands`].
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use experai::logging::init_logger;
 
 /// Top-level CLI parser.
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(name = "experai")]
 #[command(version = "0.3.0")]
 #[command(about = "Small language model training toolkit")]
 struct Cli {
+    /// Print sponsor links and exit.
+    #[arg(long)]
+    support: bool,
+
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 /// Available subcommands.
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum Commands {
     /// Train a model on a tokenized dataset.
     Train {
@@ -202,12 +206,26 @@ enum Commands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    if cli.support {
+        println!("Support Experai development:");
+        println!("  Ko-fi: https://ko-fi.com/ewancroft");
+        println!("  GitHub Sponsors: https://github.com/sponsors/ewanc26");
+        return Ok(());
+    }
+
+    // No subcommand and no --support: show help instead of doing nothing.
+    let Some(command) = cli.command else {
+        Cli::command().print_help()?;
+        println!();
+        return Ok(());
+    };
+
     // Allow overriding the log level via environment variable.
     let log_level = std::env::var("EXPERAI_LOG_LEVEL").ok();
     init_logger(log_level, false)?;
 
     // Dispatch to the appropriate command handler.
-    match cli.command {
+    match command {
         Commands::Train {
             model,
             data,
@@ -334,4 +352,61 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::error::ErrorKind;
+
+    #[test]
+    fn support_flag_parses_without_subcommand() {
+        let cli = Cli::try_parse_from(["experai", "--support"]).unwrap();
+        assert!(cli.support);
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn support_flag_with_subcommand() {
+        let cli = Cli::try_parse_from([
+            "experai",
+            "--support",
+            "train",
+            "-m",
+            "gpt2",
+            "-d",
+            "data",
+            "-o",
+            "out",
+        ])
+        .unwrap();
+        assert!(cli.support);
+        assert!(cli.command.is_some());
+    }
+
+    #[test]
+    fn no_args_allows_no_subcommand() {
+        let cli = Cli::try_parse_from(["experai"]).unwrap();
+        assert!(!cli.support);
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn subcommands_are_optional_without_support() {
+        let cli = Cli::try_parse_from(["experai", "generate", "-m", "out", "-p", "hi"]).unwrap();
+        assert!(!cli.support);
+        assert!(cli.command.is_some());
+    }
+
+    #[test]
+    fn unknown_subcommand_is_rejected() {
+        let err = Cli::try_parse_from(["experai", "bogus"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidSubcommand);
+    }
+
+    #[test]
+    fn support_flag_requires_no_other_arguments() {
+        let cli = Cli::try_parse_from(["experai", "--support"]).unwrap();
+        assert!(cli.support);
+    }
 }
