@@ -34,3 +34,13 @@ checkpoints/
 wandb/
 mlruns/
 output/
+
+# opencode plugin auto-installed dependencies and lockfiles
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
+.opencode/bun.lock
+.opencode/.gitignore
+
+# MCP server dependencies
+mcp/node_modules/
