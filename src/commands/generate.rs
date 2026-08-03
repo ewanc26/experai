@@ -7,6 +7,10 @@ use candle_nn::Module;
 use tracing::{debug, info, warn};
 
 /// Run autoregressive text generation from a prompt using a trained model.
+///
+/// When `json` is `true`, the generated text is emitted as
+/// `{"text": "..."}` on stdout so tooling (opencode, MCP) can parse it.
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     model: String,
     prompt: String,
@@ -15,6 +19,7 @@ pub fn run(
     top_k: usize,
     top_p: f64,
     tokenizer: String,
+    json: bool,
 ) -> Result<()> {
     info!("Starting generation: model={}, prompt={}", model, prompt);
     let tok = load_tokenizer(&tokenizer)?;
@@ -80,7 +85,15 @@ pub fn run(
         .decode(&generated, true)
         .map_err(|e| anyhow::anyhow!("Decode error: {}", e))?;
     info!("Generated {} tokens", generated.len() - input_ids.len());
-    println!("{}", output_text);
+
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({ "text": output_text, "tokens": generated.len() - input_ids.len() })
+        );
+    } else {
+        println!("{}", output_text);
+    }
 
     Ok(())
 }

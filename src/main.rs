@@ -10,12 +10,16 @@ use experai::logging::init_logger;
 /// Top-level CLI parser.
 #[derive(Parser, Debug)]
 #[command(name = "experai")]
-#[command(version = "0.3.0")]
+#[command(version)]
 #[command(about = "Small language model training toolkit")]
 struct Cli {
     /// Print sponsor links and exit.
     #[arg(long)]
     support: bool,
+
+    /// Emit machine-readable JSON on stdout (used by opencode/MCP integrations).
+    #[arg(long, global = true)]
+    json: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -207,14 +211,14 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     if cli.support {
-        println!("Support Experai development:");
-        println!("  Ko-fi: https://ko-fi.com/ewancroft");
-        println!("  GitHub Sponsors: https://github.com/sponsors/ewanc26");
-        return Ok(());
+        return print_support(cli.json);
     }
 
-    // No subcommand and no --support: show help instead of doing nothing.
+    // No subcommand: emit machine-readable metadata (--json) or show help.
     let Some(command) = cli.command else {
+        if cli.json {
+            return print_metadata_json();
+        }
         Cli::command().print_help()?;
         println!();
         return Ok(());
@@ -283,6 +287,7 @@ fn main() -> Result<()> {
                 top_k,
                 top_p,
                 tokenizer,
+                cli.json,
             )?;
         }
         Commands::AtProtocol {
@@ -354,6 +359,58 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Print sponsor links, optionally as machine-readable JSON.
+fn print_support(json: bool) -> Result<()> {
+    let links = support_links();
+    if json {
+        println!("{}", serde_json::to_string_pretty(&links)?);
+    } else {
+        let ko_fi = links["ko_fi"].as_str().unwrap_or_default();
+        let sponsors = links["github_sponsors"].as_str().unwrap_or_default();
+        println!("Support Experai development:");
+        println!("  Ko-fi: {ko_fi}");
+        println!("  GitHub Sponsors: {sponsors}");
+    }
+    Ok(())
+}
+
+/// Sponsor links as a JSON object.
+fn support_links() -> serde_json::Value {
+    serde_json::json!({
+        "ko_fi": "https://ko-fi.com/ewancroft",
+        "github_sponsors": "https://github.com/sponsors/ewanc26",
+    })
+}
+
+/// Print CLI metadata (name, version, subcommands) as JSON, derived from clap
+/// so it stays in sync with the actual argument definitions. Used by the
+/// opencode plugin and MCP server for tool discovery.
+fn print_metadata_json() -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(&cli_metadata())?);
+    Ok(())
+}
+
+/// CLI metadata derived from clap's parsed definition.
+fn cli_metadata() -> serde_json::Value {
+    let cmd = Cli::command();
+    let commands = cmd
+        .get_subcommands()
+        .filter(|sc| sc.get_name() != "help")
+        .map(|sc| {
+            serde_json::json!({
+                "name": sc.get_name(),
+                "description": sc.get_about().map(ToString::to_string),
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "name": "experai",
+        "version": cmd.get_version(),
+        "about": cmd.get_about().map(ToString::to_string),
+        "commands": commands,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,5 +465,51 @@ mod tests {
     fn support_flag_requires_no_other_arguments() {
         let cli = Cli::try_parse_from(["experai", "--support"]).unwrap();
         assert!(cli.support);
+    }
+
+    #[test]
+    fn json_flag_parses_globally() {
+        let cli = Cli::try_parse_from(["experai", "--json", "--support"]).unwrap();
+        assert!(cli.json);
+        assert!(cli.support);
+
+        let cli = Cli::try_parse_from(["experai", "--json"]).unwrap();
+        assert!(cli.json);
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn json_flag_works_after_subcommand() {
+        let cli = Cli::try_parse_from(["experai", "generate", "-m", "out", "-p", "hi", "--json"])
+            .unwrap();
+        assert!(cli.json);
+        assert!(cli.command.is_some());
+    }
+
+    #[test]
+    fn support_json_is_machine_readable() {
+        let parsed = support_links();
+        assert!(parsed["ko_fi"].is_string());
+        assert!(parsed["github_sponsors"].is_string());
+        assert!(parsed["ko_fi"].as_str().unwrap().starts_with("https://"));
+    }
+
+    #[test]
+    fn metadata_json_lists_commands() {
+        let parsed = cli_metadata();
+        assert_eq!(parsed["name"], "experai");
+        assert!(parsed["commands"].is_array());
+        let names: Vec<&str> = parsed["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|c| c["name"].as_str())
+            .collect();
+        for expected in ["train", "generate", "preprocess", "package"] {
+            assert!(
+                names.contains(&expected),
+                "metadata should list `{expected}`, got {names:?}"
+            );
+        }
     }
 }
