@@ -86,6 +86,13 @@ The `models/` directory is gitignored, so each machine needs to fetch the tokeni
 | `at-protocol` | Load training data from a Bluesky user |
 | `jetstream-train` | Stream and train from the AT Protocol firehose |
 
+Global options:
+
+```bash
+experai --support   # Print sponsor links and exit
+experai             # No subcommand: show help
+```
+
 ### Train
 
 ```bash
