@@ -21,7 +21,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
 thiserror = "2"
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["derive", "env"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 rand = "0.8"
@@ -29,7 +29,9 @@ regex = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 tokio-util = "0.7"
 atrium-api = "0.25"
+atrium-xrpc = "0.12"
 atrium-xrpc-client = { version = "0.5", features = ["reqwest"] }
+chrono = { version = "0.4", features = ["serde"] }
 sysinfo = "0.30"
 tokio-tungstenite = { version = "0.21", features = ["rustls-tls-native-roots"] }
 futures-util = "0.3"

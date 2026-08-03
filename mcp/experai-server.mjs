@@ -243,5 +243,35 @@ server.registerTool(
   },
 )
 
+server.registerTool(
+  "publish_weight",
+  {
+    title: "Publish weights to AT Protocol",
+    description:
+      "Publish a trained checkpoint's safetensors weights to an AT Protocol repository under the click.croft.experai.weight collection. Requires PDS credentials (use env var EXPERAI_ATP_PASSWORD instead of passing plaintext).",
+    inputSchema: {
+      checkpoint: z.string().describe("Path to the checkpoint directory (must contain .safetensors and model_config.json)."),
+      handle: z.string().describe("AT Protocol handle or DID of the owning account."),
+      password: z.string().optional().describe("Password or app password. Set EXPERAI_ATP_PASSWORD env var instead if not provided."),
+      pds_url: z.string().optional().describe("Personal Data Server URL (default https://bsky.social)."),
+      rkey: z.string().optional().describe("Record key (auto-generated when omitted)."),
+      collection: z.string().optional().describe("Collection NSID (default click.croft.experai.weight)."),
+      chunk_size: z.number().int().positive().optional().describe("Chunk size in bytes for blob uploads (default 1000000)."),
+      name: z.string().describe("Human-readable name for the weight record."),
+      description: z.string().optional().describe("Optional description."),
+    },
+  },
+  async (args) => {
+    const cliArgs = ["publish-weight", "--checkpoint", args.checkpoint, "--handle", args.handle, "--name", args.name]
+    if (args.password !== undefined) cliArgs.push("--password", args.password)
+    if (args.pds_url !== undefined) cliArgs.push("--pds-url", args.pds_url)
+    if (args.rkey !== undefined) cliArgs.push("--rkey", args.rkey)
+    if (args.collection !== undefined) cliArgs.push("--collection", args.collection)
+    if (args.chunk_size !== undefined) cliArgs.push("--chunk-size", String(args.chunk_size))
+    if (args.description !== undefined) cliArgs.push("--description", args.description)
+    return text(await runExperai(cliArgs))
+  },
+)
+
 const transport = new StdioServerTransport()
 await server.connect(transport)

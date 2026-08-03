@@ -243,6 +243,69 @@ export default (async () => {
             cliArgs.push("--lmstudio-dir", args.lmstudio_dir)
           return await runExperai(cliArgs)
         },
+       }),
+
+      experai_publish_weight: tool({
+        description:
+          "Publish trained model weights to an AT Protocol repository under click.croft.experai.weight. The password can be provided via EXPERAI_ATP_PASSWORD env var.",
+        args: {
+          checkpoint: tool.schema
+            .string()
+            .describe("Path to the checkpoint directory (must contain .safetensors and model_config.json)."),
+          handle: tool.schema
+            .string()
+            .describe("AT Protocol handle or DID of the owning account."),
+          password: tool.schema
+            .string()
+            .optional()
+            .describe("Password or app password (use EXPERAI_ATP_PASSWORD env var instead)."),
+          pds_url: tool.schema
+            .string()
+            .optional()
+            .describe("Personal Data Server URL (default https://bsky.social)."),
+          rkey: tool.schema
+            .string()
+            .optional()
+            .describe("Record key (auto-generated when omitted)."),
+          collection: tool.schema
+            .string()
+            .optional()
+            .describe("Collection NSID (default click.croft.experai.weight)."),
+          chunk_size: tool.schema
+            .number()
+            .optional()
+            .describe("Chunk size in bytes for blob uploads (default 1000000)."),
+          name: tool.schema
+            .string()
+            .describe("Human-readable name for the weight record."),
+          description: tool.schema
+            .string()
+            .optional()
+            .describe("Optional description."),
+        },
+        async execute(args) {
+          const cliArgs = [
+            "publish-weight",
+            "--checkpoint",
+            args.checkpoint,
+            "--handle",
+            args.handle,
+            "--name",
+            args.name,
+          ]
+          if (args.password !== undefined)
+            cliArgs.push("--password", args.password)
+          if (args.pds_url !== undefined)
+            cliArgs.push("--pds-url", args.pds_url)
+          if (args.rkey !== undefined) cliArgs.push("--rkey", args.rkey)
+          if (args.collection !== undefined)
+            cliArgs.push("--collection", args.collection)
+          if (args.chunk_size !== undefined)
+            cliArgs.push("--chunk-size", String(args.chunk_size))
+          if (args.description !== undefined)
+            cliArgs.push("--description", args.description)
+          return await runExperai(cliArgs)
+        },
       }),
 
       experai_atprotocol: tool({

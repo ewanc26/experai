@@ -205,6 +205,36 @@ enum Commands {
         #[arg(long, default_value = "f16")]
         dtype: String,
     },
+    /// Publish trained model weights to an AT Protocol repo.
+    PublishWeight {
+        /// Path to the checkpoint directory (must contain a .safetensors file and model_config.json).
+        #[arg(short = 'c', long)]
+        checkpoint: String,
+        /// AT Protocol handle of the owning account.
+        #[arg(short = 'h', long)]
+        handle: String,
+        /// Password or app password (or set EXPERAI_ATP_PASSWORD env var).
+        #[arg(short = 'p', long, env = "EXPERAI_ATP_PASSWORD")]
+        password: String,
+        /// Personal Data Server URL.
+        #[arg(short = 'u', long, default_value = "https://bsky.social")]
+        pds_url: String,
+        /// Record key (rkey); auto-generated when omitted.
+        #[arg(long)]
+        rkey: Option<String>,
+        /// Collection NSID (default: click.croft.experai.weight).
+        #[arg(long, default_value = "click.croft.experai.weight")]
+        collection: String,
+        /// Chunk size in bytes for blob uploads (default: 1000000).
+        #[arg(long, default_value = "1000000")]
+        chunk_size: usize,
+        /// Human-readable name for the weight record.
+        #[arg(long)]
+        name: String,
+        /// Optional description.
+        #[arg(long)]
+        description: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -353,6 +383,29 @@ fn main() -> Result<()> {
             dtype,
         } => {
             experai::commands::package::run(checkpoint, name, lmstudio_dir, dtype)?;
+        }
+        Commands::PublishWeight {
+            checkpoint,
+            handle,
+            password,
+            pds_url,
+            rkey,
+            collection,
+            chunk_size,
+            name,
+            description,
+        } => {
+            experai::commands::publish_weight::run(
+                checkpoint,
+                handle,
+                password,
+                pds_url,
+                rkey,
+                Some(collection),
+                chunk_size,
+                name,
+                description,
+            )?;
         }
     }
 

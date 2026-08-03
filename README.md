@@ -242,7 +242,7 @@ the toolkit from an agent or the TUI:
 - **Plugin** — `.opencode/plugin/experai.ts` registers `experai_*` tools
   (`experai_support`, `experai_generate`, `experai_train`, `experai_preprocess`,
   `experai_package`, `experai_atprotocol`, `experai_jetstream`,
-  `experai_commands`) that shell out to the compiled binary.
+  `experai_publish_weight`, `experai_commands`) that shell out to the compiled binary.
 - **Slash command** — `/experai <args>` runs the CLI and summarizes the result.
 - **MCP server** — `mcp/experai-server.mjs` exposes the same capabilities as
   standard MCP tools (usable by opencode and any other MCP client). It is wired
@@ -268,6 +268,41 @@ experai --support --json   # structured sponsor links
 experai --json             # CLI metadata: name, version, subcommands
 experai generate --model output --prompt "..." --json   # {"text": "...", "tokens": N}
 ```
+
+## Publishing weights to AT Protocol
+
+After training, weights can be shared by publishing them to a Bluesky/AT
+Protocol Personal Data Server (PDS) under a custom collection. The record
+uses the NSID `click.croft.experai.weight`.
+
+The safetensors checkpoint file is uploaded as one or more blobs (each up to
+1 MB, split automatically), and a record referencing all chunks is written to
+the authenticated user's repository:
+
+```bash
+# Using an app password stored in the env:
+EXPERAI_ATP_PASSWORD="your-app-password" \
+experai publish-weight \
+  --checkpoint output \
+  --handle alice.bsky.social \
+  --name "my-finetuned-model" \
+  --description "Finetuned on Bluesky posts about machine learning"
+```
+
+| Flag           | Default                  | Description                                              |
+|----------------|--------------------------|----------------------------------------------------------|
+| `--checkpoint` | —                        | Path to checkpoint dir (must contain `.safetensors` + `model_config.json`) |
+| `--handle`     | —                        | Bluesky handle or DID of the owning account              |
+| `--password`   | `EXPERAI_ATP_PASSWORD`   | Password or app password (env var preferred)             |
+| `--pds-url`    | `https://bsky.social`    | PDS URL                                                  |
+| `--rkey`       | auto-generated           | Record key for the published record                      |
+| `--collection` | `click.croft.experai.weight` | Collection NSID                                       |
+| `--chunk-size` | `1000000`                | Max bytes per blob upload                                |
+| `--name`       | —                        | Human-readable name for the weight record                |
+| `--description`| —                        | Optional description                                     |
+
+The password is never printed or logged. Use an [app password](https://bsky.app/settings/security)
+rather than your main account password.
 
 ## Support
 
