@@ -84,6 +84,11 @@ pub fn run(
         max_swap_usage: 0.0,
         min_free_mem_mb: 2048,
         min_lr_ratio: 0.1,
+        early_stopping_patience: 0,
+        early_stopping_min_delta: 0.0,
+        restore_best_weights: true,
+        log_metrics_csv: true,
+        freeze_layers: 0,
     };
 
     if auto_tune {

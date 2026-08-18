@@ -60,6 +60,21 @@ enum Commands {
         /// Resume training from the latest checkpoint in `output_dir`.
         #[arg(long)]
         resume: bool,
+        /// Stop training if validation loss does not improve for this many epochs (0 = disabled).
+        #[arg(long, default_value = "0")]
+        early_stopping_patience: usize,
+        /// Minimum validation loss improvement to count as progress.
+        #[arg(long, default_value = "0.0")]
+        early_stopping_min_delta: f64,
+        /// Restore best weights when early stopping triggers.
+        #[arg(long, default_value = "true")]
+        restore_best_weights: bool,
+        /// Write training metrics to `metrics.csv` in the output directory.
+        #[arg(long, default_value = "true")]
+        log_metrics_csv: bool,
+        /// Freeze the bottom N transformer layers (0 = train all).
+        #[arg(long, default_value = "0")]
+        freeze_layers: usize,
     },
     /// Preprocess raw text data into tokenized training format.
     Preprocess {
@@ -271,10 +286,28 @@ fn main() -> Result<()> {
             tokenizer,
             auto_tune,
             resume,
+            early_stopping_patience,
+            early_stopping_min_delta,
+            restore_best_weights,
+            log_metrics_csv,
+            freeze_layers,
         } => {
             experai::commands::train::run(
-                model, data, lr, epochs, batch_size, grad_accum, output_dir, tokenizer, auto_tune,
+                model,
+                data,
+                lr,
+                epochs,
+                batch_size,
+                grad_accum,
+                output_dir,
+                tokenizer,
+                auto_tune,
                 resume,
+                early_stopping_patience,
+                early_stopping_min_delta,
+                restore_best_weights,
+                log_metrics_csv,
+                freeze_layers,
             )?;
         }
         Commands::Preprocess {

@@ -18,6 +18,11 @@ pub fn run(
     tokenizer: String,
     auto_tune: bool,
     resume: bool,
+    early_stopping_patience: usize,
+    early_stopping_min_delta: f64,
+    restore_best_weights: bool,
+    log_metrics_csv: bool,
+    freeze_layers: usize,
 ) -> Result<()> {
     info!(
         "Starting training: model={}, data={}, lr={}, epochs={}",
@@ -44,6 +49,11 @@ pub fn run(
         max_swap_usage: 0.0,
         min_free_mem_mb: 2048,
         min_lr_ratio: 0.1,
+        early_stopping_patience,
+        early_stopping_min_delta,
+        restore_best_weights,
+        log_metrics_csv,
+        freeze_layers,
     };
 
     if auto_tune {

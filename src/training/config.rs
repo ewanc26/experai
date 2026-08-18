@@ -43,6 +43,21 @@ pub struct TrainingConfig {
     pub min_free_mem_mb: u64,
     /// Minimum learning rate as a fraction of peak LR for cosine annealing.
     pub min_lr_ratio: f64,
+    /// Stop training if validation loss does not improve by at least `min_delta`
+    /// for this many consecutive epochs. Set to `0` to disable early stopping.
+    pub early_stopping_patience: usize,
+    /// Minimum absolute improvement in validation loss to count as progress.
+    pub early_stopping_min_delta: f64,
+    /// When `true`, restore the best weights instead of keeping the final epoch's
+    /// weights after early stopping triggers.
+    pub restore_best_weights: bool,
+    /// When `true`, write `metrics.csv` in `output_dir` after each epoch with
+    /// epoch, train_loss, val_loss, and val_perplexity columns.
+    pub log_metrics_csv: bool,
+    /// Number of bottom transformer layers to freeze during training (0 = none).
+    /// Freezing preserves the general language knowledge in early layers while
+    /// adapting higher layers to the downstream task.
+    pub freeze_layers: usize,
 }
 
 impl Default for TrainingConfig {
@@ -69,6 +84,11 @@ impl Default for TrainingConfig {
             // Keep at least 2 GB free for the OS and other processes.
             min_free_mem_mb: 2048,
             min_lr_ratio: 0.1,
+            early_stopping_patience: 0,
+            early_stopping_min_delta: 0.0,
+            restore_best_weights: true,
+            log_metrics_csv: true,
+            freeze_layers: 0,
         }
     }
 }

@@ -240,6 +240,11 @@ fn test_full_training_pipeline() {
         max_swap_usage: 0.0,
         min_free_mem_mb: 2048,
         min_lr_ratio: 0.1,
+        early_stopping_patience: 0,
+        early_stopping_min_delta: 0.0,
+        restore_best_weights: true,
+        log_metrics_csv: true,
+        freeze_layers: 0,
     };
 
     let vocab_size = model_config.vocab_size;
@@ -354,6 +359,11 @@ fn test_checkpoint_roundtrip_restores_weights() {
         max_swap_usage: 0.0,
         min_free_mem_mb: 2048,
         min_lr_ratio: 0.1,
+        early_stopping_patience: 0,
+        early_stopping_min_delta: 0.0,
+        restore_best_weights: true,
+        log_metrics_csv: true,
+        freeze_layers: 0,
     };
 
     let saved = Trainer::new(config_for(42), small_model_config()).unwrap();
@@ -442,6 +452,11 @@ fn test_training_reduces_loss() {
         max_swap_usage: 0.0,
         min_free_mem_mb: 2048,
         min_lr_ratio: 0.1,
+        early_stopping_patience: 0,
+        early_stopping_min_delta: 0.0,
+        restore_best_weights: true,
+        log_metrics_csv: true,
+        freeze_layers: 0,
     };
 
     let mut trainer = Trainer::new(train_config, model_config).unwrap();
