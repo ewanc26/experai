@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["cuda"]
-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "candle-flash-attn"]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 mkl = ["candle-core/mkl"]
 accelerate = ["candle-core/accelerate"]
@@ -14,6 +14,7 @@ accelerate = ["candle-core/accelerate"]
 candle-core = { version = "0.9", default-features = false }
 candle-nn = { version = "0.9", default-features = false }
 candle-transformers = { version = "0.9", default-features = false }
+candle-flash-attn = { version = "0.9", optional = true }
 tokenizers = "0.19"
 hf-hub = "0.3"
 safetensors = "0.5"

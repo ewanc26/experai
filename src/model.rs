@@ -5,6 +5,9 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use tracing::{debug, info, trace};
 
+#[cfg(feature = "cuda")]
+use candle_flash_attn::flash_attn;
+
 /// Base for the RoPE frequency geometric series, matching the GPT-NeoX/Llama convention.
 const ROPE_THETA: f64 = 10000.0;
 
@@ -335,8 +338,9 @@ impl MultiHeadAttention {
     /// Multi-head self-attention forward pass.
     ///
     /// Projects input to Q/K/V, reshapes to per-head dimensions, applies
-    /// rotary position embeddings to Q/K, computes scaled dot-product
-    /// attention with a causal mask, then projects back.
+    /// rotary position embeddings to Q/K, then computes scaled dot-product
+    /// attention. On CUDA with bf16/fp16 precision, flash-attention is used
+    /// automatically; otherwise the manual implementation is the fallback.
     fn forward(
         &self,
         x: &Tensor,
@@ -346,12 +350,10 @@ impl MultiHeadAttention {
         let (batch_size, seq_len, hidden_size) = x.dims3()?;
         trace!("Attention forward: input shape {:?}", x.shape());
 
-        // Linear projections: [B, T, D] → [B, T, D]
         let q = self.q_proj.forward(x)?;
         let k = self.k_proj.forward(x)?;
         let v = self.v_proj.forward(x)?;
 
-        // Reshape to (batch, heads, seq, head_dim)
         let q = q
             .reshape((batch_size, seq_len, self.num_heads, self.head_dim))?
             .transpose(1, 2)?
@@ -364,16 +366,29 @@ impl MultiHeadAttention {
             .reshape((batch_size, seq_len, self.num_heads, self.head_dim))?
             .transpose(1, 2)?;
 
-        // Rotary position embeddings: encode absolute token position into Q/K
-        // so attention can distinguish token order, not just causal visibility.
         let q = apply_rope(&q, rope_cos, rope_sin)?;
         let k = apply_rope(&k, rope_cos, rope_sin)?;
 
-        // Scaled dot-product attention
         let scale = 1.0_f64 / (self.head_dim as f64).sqrt();
+
+        #[cfg(feature = "cuda")]
+        {
+            let use_flash = matches!(x.device(), Device::Cuda(_))
+                && (x.dtype() == DType::BF16 || x.dtype() == DType::F16);
+            if use_flash {
+                let q = q.contiguous()?;
+                let k = k.contiguous()?;
+                let v = v.contiguous()?;
+                let out = flash_attn(&q, &k, &v, scale as f32, true)?;
+                let out = out
+                    .transpose(1, 2)?
+                    .reshape((batch_size, seq_len, hidden_size))?;
+                return self.o_proj.forward(&out);
+            }
+        }
+
         let k_t = k.transpose(2, 3)?;
 
-        // Causal mask: upper triangle filled with -inf to prevent attending to future tokens
         let mask = causal_mask(seq_len, x.device())?;
         let scores = (q
             .contiguous()?
@@ -384,13 +399,11 @@ impl MultiHeadAttention {
         let attn = candle_nn::ops::softmax(&scores, 3)?;
         let out = attn.matmul(&v.contiguous()?)?;
 
-        // Merge heads: (batch, heads, seq, head_dim) → (batch, seq, hidden)
         let out = out
             .transpose(1, 2)?
             .reshape((batch_size, seq_len, hidden_size))?;
 
-        let out = self.o_proj.forward(&out)?;
-        Ok(out)
+        self.o_proj.forward(&out)
     }
 }
 

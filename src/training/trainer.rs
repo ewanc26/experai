@@ -2,10 +2,12 @@ use anyhow::Result;
 use candle_core::backprop::GradStore;
 use candle_core::{DType, Device, IndexOp};
 use candle_nn::{AdamW, Module, Optimizer, VarBuilder, VarMap};
+use std::io::Write;
 use std::path::Path;
 use tracing::{debug, info, trace};
 
 use crate::data::{DataCollator, Dataset};
+use crate::errors::ExperaiError;
 use crate::model::{build_model, init_weights, ModelConfig, TransformerModel};
 use crate::utils::{self, GradientAccumulator, SystemLoadConfig, SystemLoadMonitor};
 
@@ -55,6 +57,10 @@ pub struct Trainer {
     pub load_monitor: Option<SystemLoadMonitor>,
     pub current_lr: f64,
     pub total_steps: usize,
+    pub best_weights: Option<Vec<u8>>,
+    pub epochs_without_improvement: usize,
+    pub trainable_vars: Vec<candle_core::Var>,
+    pub frozen_vars: Vec<candle_core::Var>,
 }
 
 impl Trainer {
@@ -84,9 +90,39 @@ impl Trainer {
         let model = build_model(&model_config, vb)?;
         init_weights(&var_map, &model_config, &device, config.seed)?;
 
+        let all_vars = var_map.all_vars();
+        let (trainable_vars, frozen_vars): (Vec<candle_core::Var>, Vec<candle_core::Var>) =
+            if config.freeze_layers > 0 {
+                let tensor_data = var_map.data().lock().map_err(|e| {
+                    ExperaiError::ModelLoad(format!(
+                        "variable map lock was poisoned by another thread: {e}"
+                    ))
+                })?;
+                let (trainable, frozen): (Vec<_>, Vec<_>) =
+                    all_vars.iter().cloned().partition(|var| {
+                        let name = tensor_data
+                            .iter()
+                            .find(|(_, v)| std::ptr::eq(v.as_tensor(), var.as_tensor()))
+                            .map(|(n, _)| n.as_str())
+                            .unwrap_or("");
+                        !name.starts_with("layers")
+                            || name.split('.').nth(1).and_then(|s| s.parse::<usize>().ok())
+                                >= Some(config.freeze_layers)
+                    });
+                info!(
+                    "Layer freezing: {} trainable, {} frozen (bottom {} layers)",
+                    trainable.len(),
+                    frozen.len(),
+                    config.freeze_layers
+                );
+                (trainable, frozen)
+            } else {
+                (all_vars.clone(), Vec::new())
+            };
+
         let current_lr = config.learning_rate;
         let optimizer = AdamW::new(
-            var_map.all_vars(),
+            trainable_vars.clone(),
             candle_nn::ParamsAdamW {
                 lr: current_lr,
                 beta1: 0.9,
@@ -119,7 +155,19 @@ impl Trainer {
             load_monitor,
             current_lr,
             total_steps: 0,
+            best_weights: None,
+            epochs_without_improvement: 0,
+            trainable_vars,
+            frozen_vars,
         })
+    }
+
+    pub fn trainable_param_count(&self) -> usize {
+        self.trainable_vars.len()
+    }
+
+    pub fn frozen_param_count(&self) -> usize {
+        self.frozen_vars.len()
     }
 
     fn precision_dtype_for(config: &TrainingConfig) -> DType {
@@ -230,7 +278,7 @@ impl Trainer {
         self.total_steps = total_steps;
         let mut grad_accum = GradientAccumulator::new(self.config.gradient_accumulation_steps);
         let accum_steps = self.config.gradient_accumulation_steps;
-        let vars = self.var_map.all_vars();
+        let vars = self.trainable_vars.clone();
         let fp16_scale: f64 = if self.precision_dtype() == DType::F16 {
             1024.0
         } else {
@@ -245,6 +293,17 @@ impl Trainer {
                 self.config.max_swap_usage * 100.0,
                 self.config.min_free_mem_mb,
             );
+        }
+
+        let early_stopping = self.config.early_stopping_patience > 0;
+        let mut best_val_loss = f64::INFINITY;
+        let mut early_stop_triggered = false;
+
+        if self.config.log_metrics_csv {
+            let metrics_path = format!("{}/metrics.csv", self.config.output_dir);
+            let header = "epoch,train_loss,val_loss,val_perplexity\n";
+            std::fs::write(&metrics_path, header)?;
+            info!("Metrics CSV will be written to {}", metrics_path);
         }
 
         for epoch in 0..self.config.epochs {
@@ -332,7 +391,7 @@ impl Trainer {
                 let batch_grads = scaled_loss.backward()?;
 
                 if let Some(ref mut acc) = accum_grads {
-                    for var in &vars {
+                    for var in vars.iter() {
                         if let Some(g) = batch_grads.get(var.as_tensor()) {
                             if let Some(existing) = acc.get(var.as_tensor()).cloned() {
                                 acc.insert(var.as_tensor(), (existing + g)?);
@@ -349,7 +408,7 @@ impl Trainer {
                 if grad_accum.step() {
                     if let Some(ref mut acc) = accum_grads {
                         if self.precision_dtype() == DType::F16 {
-                            for var in &vars {
+                            for var in vars.iter() {
                                 if let Some(g) = acc.get(var.as_tensor()).cloned() {
                                     acc.insert(var.as_tensor(), g.affine(1.0 / fp16_scale, 0.0)?);
                                 }
@@ -411,6 +470,62 @@ impl Trainer {
                 self.save_checkpoint(&ckpt_path)?;
                 info!("New best train loss: {:.4}, saved checkpoint", avg_loss);
             }
+
+            if self.config.log_metrics_csv {
+                let metrics_path = format!("{}/metrics.csv", self.config.output_dir);
+                let row = format!(
+                    "{},{:.6},{:.6},{:.6}\n",
+                    epoch + 1,
+                    avg_loss,
+                    val_loss,
+                    val_ppl
+                );
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&metrics_path)?
+                    .write_all(row.as_bytes())?;
+            }
+
+            if early_stopping {
+                let improved = val_loss < best_val_loss - self.config.early_stopping_min_delta;
+                if improved {
+                    best_val_loss = val_loss;
+                    self.epochs_without_improvement = 0;
+                    let ckpt_path = format!("{}/best", self.config.output_dir);
+                    self.save_checkpoint(&ckpt_path)?;
+                    info!(
+                        "Early stopping: new best val loss {:.4}, saved checkpoint",
+                        best_val_loss
+                    );
+                } else {
+                    self.epochs_without_improvement += 1;
+                    info!(
+                        "Early stopping: no improvement for {} epoch(s) (patience={})",
+                        self.epochs_without_improvement, self.config.early_stopping_patience
+                    );
+                    if self.epochs_without_improvement >= self.config.early_stopping_patience {
+                        info!(
+                            "Early stopping triggered after {} epoch(s) without improvement",
+                            self.epochs_without_improvement
+                        );
+                        if self.config.restore_best_weights {
+                            let best_ckpt = format!("{}/best", self.config.output_dir);
+                            if std::path::Path::new(&format!("{}.safetensors", best_ckpt)).exists()
+                            {
+                                self.load_checkpoint(&best_ckpt)?;
+                                info!("Restored best weights from {}", best_ckpt);
+                            }
+                        }
+                        early_stop_triggered = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if early_stop_triggered {
+            info!("Training stopped early due to early stopping");
         }
 
         Ok(losses)
