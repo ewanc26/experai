@@ -1,269 +1,196 @@
-# AGENTS.md
+#AGENTS.md
 
-# Experai Project Guide
+Guidance for AI coding agents working in this repository. Human contributors
+may find it useful too, but the audience is agents.
 
-## Project Overview
-Experai is a small language model training toolkit built in Rust using the Candle ML framework with CUDA/Metal acceleration. It provides CLI commands for training, preprocessing, and text generation.
+## Project overview
 
-## Repository Structure
+A native C/C++23 Minecraft: Java Edition server focused on predictable, low RAM
+usage. Zincfox is an experimental clean-room server implementation: the goal is
+not to clone the vanilla server architecture in C++, but to build the protocol,
+simulation, world and persistence layers around explicit ownership, bounded
+queues and measurable memory budgets from the start.
+
+- **Language:** C17 is available for small leaf components where it reduces
+  runtime/dependency surface; C++23 is the default for protocol, server,
+  storage, and world state. `snake_case` for functions and variables,
+  `PascalCase` for types.
+- **Build:** CMake, C17/C++23 strict by target, `-Wall -Wextra -Wpedantic
+  -Wconversion -Wsign-conversion`. Tests are per-file executables run through `ctest`,
+  following the account's other native repos (`clay/`, `wolfram/`, `keepsake/`).
+- **Target:** macOS and Linux desktop. Windows is untested (as elsewhere in this
+  account).
+
+## Repository layout
+
 ```
-experai
-├── Cargo.toml
-├── AGENTS.md
-├── README.md
-├── LICENSE
-├── .gitignore
-└── src
-    ├── main.rs           # CLI entry point with clap subcommands
-    ├── lib.rs            # Module declarations and public exports
-    ├── data.rs           # Dataset loading, tokenization, batching
-    ├── model.rs          # Model architecture definitions (transformer, embeddings, heads)
-    ├── preprocessing.rs  # Text cleaning, tokenization pipeline, data collation
-    ├── training.rs       # Training loop, loss functions, optimization, checkpointing
-    ├── utils.rs          # Shared utilities: logging, metrics, device management
-    └── logging
-        └── mod.rs        # Structured logging configuration
+include/zincfox/       public/internal C/C++ interfaces
+src/protocol/          VarInt, framing, packet/state codecs
+src/server/            connection lifecycle and dispatch
+src/world/             world/chunk state (future)
+src/entity/            entity/player storage (future)
+src/storage/           region/persistence backends (future)
+test/                  unit and protocol regression tests
+docs/                  design notes and compatibility records
 ```
 
-## Agent Tasks
+Dependency direction is inward from higher-level game/server code to small
+protocol/net abstractions. Do not let world/entity code call raw socket APIs.
 
-### 1. Model Development (`model.rs`)
-- Implement transformer-based architectures using `candle-transformers`
-- Define model configs: hidden size, layers, heads, vocab size, max seq length
-- Support loading pretrained weights from Hugging Face Hub (`hf-hub` crate)
-- Implement custom layers for niche NLP tasks (e.g., rotary embeddings, ALiBi)
-- Ensure all operations use CUDA-accelerated `candle-nn` backend
-- Add model serialization/deserialization via `safetensors`
+## Module boundaries — read before editing
 
-### 2. Data Pipeline (`data.rs`, `preprocessing.rs`)
-- Implement dataset loading from multiple formats: JSONL, CSV, Hugging Face datasets
-- Build tokenization pipeline using `tokenizers` crate (BPE/WordPiece)
-- Handle dynamic padding with `DataCollatorForLanguageModeling` equivalent
-- Implement train/validation/test splits with reproducible shuffling
-- Support streaming large datasets without full memory load
-- Add data validation: sequence length checks, vocab coverage, duplicate detection
+- **Protocol code owns all wire-format parsing.** `src/protocol/` must stay
+  free of server lifecycle concerns;
+`src / server /` must stay free of game -
+        state concerns
+            .The boundary is the `protocol::handle_packet` dispatch interface.-
+        **Version -
+        specific packet definitions stay in `src /
+            protocol /`.**Transport and game systems must not accumulate packet
+                              IDs or
+    version checks.Put version tables /
+            codecs behind the protocol layer so supporting another Minecraft
+                release does not fork the whole server.-
+        **Connection state is owned by `src /
+            server /`.**The protocol layer sees only
+                            borrowed `std::span` payloads; it must not retain decoded packet objects
+  after dispatch.
+- **No global mutable server state.** A subsystem that owns a thread must
+  expose shutdown/join semantics and memory/queue bounds.
 
-### 3. Training Workflow (`training.rs`, `main.rs` CLI)
-- Implement training loop with gradient accumulation, mixed precision (bf16/fp16)
-- Support learning rate scheduling: cosine, linear warmup, constant
-- Add gradient clipping, weight decay, optimizer configuration (AdamW)
-- Implement checkpointing: save best model, periodic saves, resume from checkpoint
-- Add evaluation loop with perplexity, loss metrics
-- Support distributed training basics (single GPU, data parallel)
-- CLI flags in `main.rs`:
-  - `train`: `--model`, `--data`, `--epochs`, `--lr`, `--batch-size`, `--grad-accum`, `--precision`, `--output-dir`
-  - `preprocess`: `--input`, `--output`, `--tokenizer`, `--max-length`, `--split-ratio`
-  - `generate`: `--model`, `--prompt`, `--max-tokens`, `--temperature`, `--top-k`, `--top-p`
-
-### 4. CLI Operations (`main.rs`)
-- Use `clap` derive API with subcommands and nested arg groups
-- Validate all inputs: file existence, numeric ranges, compatible flag combinations
-- Provide helpful error messages with suggested fixes
-- Support config file (TOML) for complex training runs
-- Add `--dry-run` flag for configuration validation without execution
-
-### 5. Utilities & Infrastructure (`utils.rs`, `logging/`)
-- Structured logging with `tracing` + `tracing-subscriber` (JSON for production, pretty for dev)
-- Device management: auto-detect CUDA/Metal/CPU, fallback logic
-- Metrics collection: loss curves, throughput, memory usage
-- Random seed management for reproducibility
-- Helper functions: tensor utilities, shape validation, memory profiling
-
-## Implementation Invariants
-
-### Memory Safety
-- Validate all tensor shapes before operations; use `candle-core`'s shape checking
-- Prevent OOM: implement gradient checkpointing for large models, streaming dataloaders
-- Use `half::bf16`/`half::f16` explicitly for mixed precision; avoid accidental `f32` promotion
-- Free intermediate tensors promptly; avoid retaining computation graphs longer than needed
-
-### Numerical Stability
-- Gradient clipping at 1.0 norm before optimizer step
-- Loss scaling for fp16: dynamic loss scale with overflow detection
-- Initialize weights with proper schemes (Xavier, Kaiming) per layer type
-- Use `LayerNorm`/`RMSNorm` with epsilon ≥ 1e-6
-
-### Reproducibility
-- Seed all RNGs: `rand`, `candle`, CUDA (via `CUBLASLT_LOG_LEVEL=0`)
-- Deterministic algorithms where available (`candle` CUDA kernels)
-- Log exact software versions: `candle-core`, `candle-nn`, `candle-transformers`, CUDA driver, Rust toolchain
-- Store training config (hyperparameters, data splits) alongside checkpoints
-
-### Data Integrity
-- Validate tokenized sequences: no OOV tokens beyond special tokens, length ≤ model max
-- Check dataset for empty sequences, duplicate examples, label leakage
-- Verify checksum of downloaded pretrained weights
-- Atomic writes for checkpoints (write to temp, rename)
-
-### Concurrency & Performance
-- Use `rayon` for CPU-bound preprocessing parallelism
-- Async I/O for dataset loading where beneficial
-- Pin memory for GPU transfers
-- Profile with `cargo flamegraph` and `nvprof`/`nsys` regularly
-
-## Configuration Management
-
-### Cargo Features
-- Default: `cuda` (requires NVIDIA driver + CUDA toolkit)
-- Optional: `metal` (Apple Silicon / macOS), `mkl` (Intel MKL BLAS), `accelerate` (Apple Accelerate)
-- On macOS, always build with `--no-default-features --features metal` (the default `cuda` feature will fail without CUDA)
-- Test all feature combinations in CI
-
-### Development Platform: macOS / Metal Only
-
-**The only configuration that compiles on the development machine is
-`--no-default-features --features metal`.** Development happens on macOS, which has no
-NVIDIA driver or CUDA toolkit, so:
-
-- **`cuda` is the default feature but cannot be built locally.** A bare `cargo build`,
-  `cargo test`, or `cargo clippy` will fail. Always pass
-  `--no-default-features --features metal` explicitly.
-- **`--all-features` cannot be used locally either** — it enables `cuda`. Substitute
-  `--no-default-features --features metal` wherever a command below says `--all-features`.
-- **CUDA code paths are therefore unverified by local checks.** Changes touching
-  `#[cfg(feature = "cuda")]` blocks, CUDA device selection, or CUDA kernel dispatch
-  compile only in CI on a GPU runner. Treat a green local run as saying *nothing* about
-  CUDA correctness, and say so explicitly when reporting results.
-- `mkl` (Intel MKL) likewise does not apply to Apple Silicon; `accelerate` is the macOS
-  BLAS equivalent.
-
-The standard local verification sequence is:
+## Build and run
 
 ```bash
-cargo fmt --check
-cargo clippy --no-default-features --features metal --all-targets -- -D warnings
-cargo test --no-default-features --features metal
-cargo build --release --no-default-features --features metal
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+./build/zincfox [--port 1-65535]
 ```
 
-### Tokenizer Setup
-- The tokenizer file at `models/tokenizer.json` must be a valid HuggingFace `tokenizers` format JSON file
-- The `models/` directory is gitignored, so the tokenizer must be fetched on each machine:
-  ```bash
-  curl -sL "https://huggingface.co/gpt2/resolve/main/tokenizer.json" -o models/tokenizer.json
-  ```
-- Custom hand-crafted tokenizer JSON files (with top-level `vocab`/`merges` instead of the HuggingFace schema) will fail with `ModelWrapper` deserialization errors
-- The `tokenizers` crate (v0.19) expects the standard HuggingFace tokenizer.json schema with `model`, `normalizer`, `pre_tokenizer`, `post_processor`, and `decoder` fields
+"Verified" means: clean build (zero warnings under the strict flags), `ctest`
+green, and — for anything touching the network path — a real client connection
+path for the claimed states with automated regression fixtures retained where
+licensing permits.
 
-### Environment Variables
-- `EXPERAI_DEVICE`: override device selection (`cuda:0`, `metal`, `cpu`)
-- `EXPERAI_LOG_LEVEL`: `trace`|`debug`|`info`|`warn`|`error`
-- `EXPERAI_SEED`: global random seed (default: 42)
-- `HF_HUB_CACHE`: cache directory for Hugging Face models
-- `CANDLE_CUDA_ARCH`: target CUDA compute capability (e.g., `80` for Ampere)
+## Configuration
 
-## Testing Strategy
+- **All configurable behavior belongs in the global `zincfox.conf` file.** Do
+  not add hidden environment flags, command-only switches, or per-module
+  configuration files for server behavior. A new setting must have a bounded
+  type/range, a documented default, load/save coverage, and an explanation of
+  its retained-memory or resource effect when relevant.
+- Configuration must never make an unbounded queue, cache, world, or player
+  store possible. Dynamic choices must resolve to one of documented finite
+  limits and select the safe lower limit when host information is unavailable.
 
-### Unit Tests (in-module `#[cfg(test)]`)
-- Tokenizer round-trip: encode → decode preserves text
-- Data collator: batch shapes, padding correctness, mask alignment
-- Model forward pass: output shapes, no NaN, gradient flow
-- Loss functions: cross-entropy matches reference implementation
-- Learning rate schedules: values at step 0, warmup end, decay end
+## Versioning
 
-### Integration Tests (`tests/`)
-- Full training run on tiny dataset (1-2 epochs, 100 samples) → loss decreases
-- Checkpoint save/load → identical model weights
-- Generation: deterministic output with fixed seed + greedy decoding
-- CLI: all subcommands exit 0 with valid args, non-zero with invalid args
+- Releases use strict semantic versioning `v<major>.<minor>.<patch>`.
+- The version lives only in the `VERSION` line of `CMakeLists.txt`; derive any
+  runtime version string from that single source of truth, not a separate file.
+- **No version jumps**: bump from the immediately previous released version.
+  Never skip a patch, minor, or major number; do not backfill gaps with phantom
+  tags or releases.
+- **Substantial changes require a release cut**: a user-visible protocol or
+  gameplay behavior, persistence/world-format change, compatibility claim,
+  public interface change, or material resource-budget change must not be
+  allowed to accumulate indefinitely after a release. Before merging the next
+  substantial tranche, audit the commits since the latest tag and cut the next
+  sequential version when the tranche is ready. Documentation-only, test-only,
+  formatting, and internal refactors do not require a version cut unless they
+  change the published contract.
+- **Release procedure follows Wolfram**: change the single `VERSION` line,
+  create a signed annotated `v<major>.<minor>.<patch>` tag on that same commit
+  (falling back to an annotated tag only when signing is unavailable), push the
+  commit and tag, and create the matching GitHub release with generated notes.
+  For pre-1.0 releases, publish source only; attach built artifacts starting at
+  `v1.0.0`.
 
-### Property-Based Tests (`proptest`)
-- Tokenizer: round-trip for arbitrary UTF-8 strings
-- Data collator: batch sizes 1-128, sequence lengths 1-4096
-- Model: random configs within valid ranges produce valid forward pass
+## Code style
 
-### CI Validation (GitHub Actions)
+- Header guards (`ZINCFOX_PROTOCOL_<FILE>_HPP`), not `#pragma once` — matches
+  the convention in `wolfram/include/wolfram/` and `clay/include/clay/`.
+- `.clang-format` in this repo (LLVM base, 4-space indent, 80 columns,
+  attached braces) — run `clang-format -i` on changed files.
+- Comments explain *why*, sparingly; never narrate obvious code.
+- No C++ exceptions for expected protocol/server states. Use explicit
+  result/error types. Reserve exceptions/aborts for genuine programmer errors.
+- Avoid RTTI-heavy or virtual object hierarchies for packets/entities when
+  tagged values or tables are simpler.
 
-CI is the **only** place the CUDA feature gets compiled — see
-[Development Platform: macOS / Metal Only](#development-platform-macos--metal-only). The
-`cuda` steps below cannot be run before pushing, so a CUDA break will surface in CI
-rather than locally.
+## Memory invariants
 
-```yaml
-# Runs anywhere, including the macOS dev machine
-- cargo fmt --check
-- cargo clippy --no-default-features --features metal --all-targets -- -D warnings
-- cargo test --no-default-features --features metal
+The initial scaffold deliberately chooses simple fixed bounds:
 
-# Linux + CUDA toolkit runner only — NOT reproducible on macOS
-- cargo clippy --all-targets --all-features -- -D warnings
-- cargo test --all-features
-- cargo build --release --features cuda
-- cargo test --features cuda (if runner has GPU)
-```
+- 32 connection slots;
+- one 8 KiB receive buffer per slot;
+- one 128 KiB transmit buffer per slot (sized for one columnar 24-section
+  chunk frame with full sky light);
+- one small protocol / session record per slot;
+- one `pollfd` table for the listener plus those slots.
 
-## Security & Privacy
+The fixed socket-buffer payload is therefore **4.25 MiB** at maximum connection
+capacity (32 slots x 136 KiB), plus small connection/poller metadata and
+operating-system socket buffers. This is not a promise that the process RSS is
+4.25 MiB, but it is the first explicit retained-memory budget owned by Zincfox
+itself.
 
-- No telemetry, no network calls except explicit `hf-hub` downloads
-- Never log raw training data, prompts, or generated text at `info` level
-- Sanitize file paths in logs (no absolute paths to user directories)
-- Validate all external inputs: model weights, tokenizer files, dataset files
-- Use `safetensors` exclusively; never load arbitrary `pickle`/`pt` files
+When adding a subsystem, document its steady-state and worst-case retained
+memory in the PR when practical.
 
-## Documentation Standards
+Every long-lived subsystem should answer four questions:
 
-- All public items: `///` doc comments with examples
-- `README.md`: quickstart, CLI reference, architecture overview
-- `ARCHITECTURE.md`: data flow, module dependencies, extension points
-- Update docs alongside code changes; treat outdated docs as bugs
-- Generate API docs: `cargo doc --no-deps --all-features`
+1. What owns this memory?
+2. What is the normal retained size?
+3. What is the maximum retained size or eviction/backpressure rule?
+4. What input can cause the subsystem to grow?
 
-## Error Handling
+## Commits and pull requests
 
-- Use `anyhow::Result` for fallible operations; `thiserror` for library errors
-- Error variants: `Io`, `ModelLoad`, `Tokenization`, `Training`, `Config`, `Cuda`
-- Include actionable suggestions in error messages
-- Never `unwrap()`/`expect()` in production paths; only in tests/examples
+Matches the convention in `wolfram/AGENTS.md` / `keepsake/AGENTS.md`.
 
-## Release Process
+- **Atomic conventional commits**: every commit is exactly one logical change.
+  Scope by module — `feat(protocol)`, `feat(server)`, `fix(net)`,
+  `test(protocol)`, etc. Never combine a code change with a docs update, or
+  changes to two unrelated modules, in one commit. Write the message to explain
+  the reasoning, not just restate the file list. Split multi-concern work into
+  sequential commits instead.
+- **Metadata files may be updated directly on `main`.** This covers project-level
+  metadata and documentation such as `AGENTS.md`, `README.md`, `docs/**`, and
+  similar non-code files that guide how the repository is maintained.
+- **All other work lands via feature branches and pull requests.** Code,
+  tests, build scripts, and any behavioral change must be developed on a
+  dedicated `feat/<area>` or `fix/<area>` branch and merged through a PR so
+  review and CI run before it reaches `main`.
+- **Honest attribution**: commits may carry a `Co-authored-by:` trailer crediting
+  an AI agent, and may reference the specific model used, in the commit message,
+  a PR, or code comments — attribution should reflect who/what actually did the
+  work.
+- **No commented-out code** left in place; delete dead code or move it to a
+  test.
 
-1. Update `Cargo.toml` version (semver)
-2. `cargo test --all-features` passes
-3. `cargo build --release --features cuda` produces binary
-4. Tag: `git tag v{version}`
-5. Publish: `cargo publish` (if on crates.io)
-6. GitHub Release with binary artifacts and changelog
+## Issue tracking
 
-## Troubleshooting Common Issues
+- **Track every discovered issue**: a bug, protocol mismatch, portability
+  defect, missing test, documentation inconsistency, or deferred compatibility
+  problem found during development or review must have a GitHub issue unless it
+  is fixed in the same atomic change and leaves no follow-up work.
+- Create issues with the repository templates under
+  `.github/ISSUE_TEMPLATE/` (`bug_report.yml` for defects and
+  `feature_request.yml` for requested behavior). Include the exact version or
+  commit, reproduction or evidence, affected protocol state, and relevant
+  test/CI output. Do not substitute private notes or an untracked TODO for a
+  reportable issue.
+- Link the issue from the implementing pull request and close it only when the
+  fix or explicitly scoped follow-up has been verified. Release audits must
+  review open issues before declaring a tranche complete.
 
-| Symptom | Likely Cause | Fix |
-|---------|--------------|-----|
-| Build fails on `candle-core` / missing `nvcc` on macOS | Bare cargo command enabled the default `cuda` feature | Add `--no-default-features --features metal` (see [Development Platform](#development-platform-macos--metal-only)) |
-| `--all-features` fails to build on macOS | `--all-features` includes `cuda` | Use `--no-default-features --features metal`; leave CUDA checks to CI |
-| `CUDA error: invalid device ordinal` | `EXPERAI_DEVICE` points to non-existent GPU | `nvidia-smi` to list devices; set valid ordinal |
-| `OutOfMemory` during training | Batch size too large, no gradient accumulation | Reduce `--batch-size`, increase `--grad-accum` |
-| Loss = NaN after N steps | fp16 overflow, no loss scaling | Enable dynamic loss scaling, check gradient clipping |
-| Tokenizer `encode` panics | Input contains chars not in vocab | Add `[UNK]` handling, validate data preprocessing |
-| `hf-hub` download fails | Network, auth, or model not found | Check `HF_TOKEN`, model ID, connectivity |
-| Checkpoint resume fails | Config mismatch (vocab size, layers) | Verify `model_config.json` matches checkpoint |
+## Do not do these without explicit human sign-off
 
-## Extension Points
-
-- **Custom Models**: Implement `candle_nn::Module` in `model.rs`, register in `lib.rs`
-- **Custom Datasets**: Add loader in `data.rs` implementing `Dataset` trait
-- **Custom Loss**: Add function in `training.rs`, wire via CLI flag
-- **Custom Callbacks**: Training hooks (on_epoch_end, on_step) via trait objects
-- **New CLI Commands**: Add variant to `Commands` enum, implement handler
-
-## Validation Checklist (Pre-Commit)
-
-Runnable on the macOS dev machine:
-
-- [ ] `cargo fmt --check`
-- [ ] `cargo clippy --no-default-features --features metal --all-targets -- -D warnings`
-- [ ] `cargo test --no-default-features --features metal`
-- [ ] `cargo build --release --no-default-features --features metal`
-- [ ] CLI manual test: `./target/release/experai train --help`
-- [ ] CLI manual test: `./target/release/experai preprocess --help`
-- [ ] CLI manual test: `./target/release/experai generate --help`
-
-Deferred to CI — **cannot be completed locally**, so do not claim them as verified:
-
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings`
-- [ ] `cargo test --all-features`
-- [ ] `cargo build --release --features cuda`
-- [ ] Edge cases: zero epochs, huge batch, invalid paths, missing files
-- [ ] Docs updated: `README.md`, `ARCHITECTURE.md`, inline comments
-- [ ] No `unwrap()`/`expect()` in `src/` (except tests)
-- [ ] No hardcoded paths; all configurable via CLI/env
-- [ ] Secrets check: `git diff --check` + `git secrets --scan` (if configured)
+- Add a JVM/Paper/Spigot server as the actual backend.
+- Copy Mojang proprietary server source or decompiled implementation code.
+- Add an unbounded network/task/chunk queue.
+- Replace protocol validation with permissive "best effort" parsing.
+- Introduce a dependency-heavy game/server framework.
+- Claim vanilla compatibility for a release without client/protocol tests.
+- Weaken warnings, sanitizers or tests merely to get CI green.
