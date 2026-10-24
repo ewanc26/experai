@@ -34,7 +34,7 @@ atrium-xrpc = "0.12"
 atrium-xrpc-client = { version = "0.5", features = ["reqwest"] }
 chrono = { version = "0.4", features = ["serde"] }
 sysinfo = "0.30"
-tokio-tungstenite = { version = "0.21", features = ["rustls-tls-native-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 futures-util = "0.3"
 gguf-rs = "0.1"
 once_cell = "1"
