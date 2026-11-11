@@ -32,6 +32,9 @@ pub struct JetstreamConfig {
     pub max_duration_secs: u64,
     /// Enable compression
     pub compression: bool,
+    /// Replay/backfill cursor: unix timestamp in microseconds; the server
+    /// replays events from this point before tailing live.
+    pub cursor: Option<u64>,
 }
 
 impl Default for JetstreamConfig {
@@ -44,6 +47,7 @@ impl Default for JetstreamConfig {
             batch_size: 100,
             max_duration_secs: 3600,
             compression: false,
+            cursor: None,
         }
     }
 }
@@ -235,6 +239,10 @@ fn build_jetstream_url(config: &JetstreamConfig) -> Result<String> {
 
     if config.compression {
         params.push("compression=zstd".to_string());
+    }
+
+    if let Some(cursor) = config.cursor {
+        params.push(format!("cursor={cursor}"));
     }
 
     if !params.is_empty() {
@@ -554,5 +562,16 @@ mod tests {
         };
         assert_eq!(stats.valid_posts, 95);
         assert!((stats.posts_per_second - 9.5).abs() < 0.01);
+    }
+    #[test]
+    fn url_includes_cursor_when_set() {
+        let mut cfg = JetstreamConfig::default();
+        let url = build_jetstream_url(&cfg).unwrap();
+        assert!(url.contains("wantedCollections=app.bsky.feed.post"));
+        assert!(!url.contains("cursor="));
+
+        cfg.cursor = Some(1_794_158_269_401_312);
+        let url = build_jetstream_url(&cfg).unwrap();
+        assert!(url.contains("cursor=1794158269401312"), "got {url}");
     }
 }

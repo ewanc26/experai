@@ -69,6 +69,17 @@ The `models/` directory is gitignored, so each machine needs to fetch the tokeni
   --auto-tune \
   --max-samples 10000 \
   --output-dir output
+
+# Backfill: replay history from a cursor before tailing live
+# (public instances clamp replay to a recent window, ~36h; self-host
+# jetstream with --max-backfill-repos for deeper history)
+./target/release/experai jetstream-train \
+  --backfill-days 2 \
+  --max-samples 25000 \
+  --max-duration-secs 3600 \
+  --output-dir output
+# or an explicit cursor (unix microseconds):
+./target/release/experai jetstream-train --cursor 1794158269401312 --output-dir output
 ```
 
 ### Generate text
@@ -159,6 +170,8 @@ Options:
   -d, --dids <DIDS>             DIDs to filter (empty = all users)
   -n, --max-samples <MAX>       Maximum samples to collect [default: 10000]
       --max-duration-secs <SECS> Maximum collection time [default: 3600]
+      --cursor <MICROS>         Replay/backfill from this unix-microsecond cursor
+      --backfill-days <DAYS>    Backfill this many days of history before live tail
   -o, --output-dir <OUTPUT_DIR> Output directory
       --auto-tune               Auto-detect hardware and optimize params
 ```

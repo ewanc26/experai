@@ -38,6 +38,7 @@ pub fn run(
             batch_size: 100,
             max_duration_secs: 3600,
             compression: true,
+            cursor: None,
         };
 
         let rt = tokio::runtime::Runtime::new()?;

@@ -22,6 +22,8 @@ pub fn run(
     tokenizer: String,
     auto_tune: bool,
     model_config: Option<String>,
+    cursor: Option<u64>,
+    backfill_days: Option<u64>,
 ) -> Result<()> {
     info!(
         "Starting Jetstream training: host={}, collections={:?}, max_samples={}",
@@ -29,6 +31,22 @@ pub fn run(
     );
 
     let tok = load_tokenizer(&tokenizer)?;
+
+    // Backfill: --cursor takes precedence; --backfill-days N replays from
+    // N days ago (jetstream cursor = unix microseconds).
+    let cursor = match (cursor, backfill_days) {
+        (Some(c), _) => Some(c),
+        (None, Some(days)) => {
+            let now_micros = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_micros() as u64;
+            Some(now_micros.saturating_sub(days * 86_400 * 1_000_000))
+        }
+        (None, None) => None,
+    };
+    if let Some(c) = cursor {
+        info!("Backfill cursor: {c} ({} micros)", c);
+    }
 
     let jetstream_config = JetstreamConfig {
         host: jetstream_host.clone(),
@@ -38,6 +56,7 @@ pub fn run(
         batch_size: 100,
         max_duration_secs,
         compression: false,
+        cursor,
     };
 
     let rt = tokio::runtime::Runtime::new()?;

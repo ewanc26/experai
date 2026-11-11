@@ -203,6 +203,12 @@ enum Commands {
         /// Stop collecting after this many seconds.
         #[arg(long, default_value = "3600")]
         max_duration_secs: u64,
+        /// Replay/backfill cursor: unix timestamp in microseconds to start playback from.
+        #[arg(long)]
+        cursor: Option<u64>,
+        /// Backfill this many days of history before tailing live (sets the cursor).
+        #[arg(long)]
+        backfill_days: Option<u64>,
         /// Directory to save checkpoints.
         #[arg(short = 'o', long)]
         output_dir: String,
@@ -478,6 +484,8 @@ fn main() -> Result<()> {
             tokenizer,
             auto_tune,
             model_config,
+            cursor,
+            backfill_days,
         } => {
             experai::commands::jetstream_train::run(
                 jetstream_host,
@@ -494,6 +502,8 @@ fn main() -> Result<()> {
                 tokenizer,
                 auto_tune,
                 model_config,
+                cursor,
+                backfill_days,
             )?;
         }
         Commands::Package {
