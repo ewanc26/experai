@@ -198,6 +198,19 @@ const GGML_BF16: u32 = 30;
 /// RoPE base, matching [`crate::model`]'s `ROPE_THETA` (GPT-NeoX/Llama convention).
 const ROPE_THETA_F32: f32 = 10000.0;
 
+/// Convert raw little-endian BF16 bytes to F32 bytes (bf16 is the top 16 bits
+/// of an f32, so each bf16 expands to 4 bytes). We export as F32 rather than
+/// F16 because gguf-rs 0.1 mis-sizes GGML kind 30 (BF16), and a correct
+/// bf16→f16 conversion needs the full f32→f16 rounding path.
+fn bf16_to_f32_bytes(raw: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(raw.len() * 2);
+    for [lo, hi] in raw.as_chunks::<2>().0 {
+        let bf16_bits = u16::from_le_bytes([*lo, *hi]);
+        out.extend_from_slice(&((bf16_bits as u32) << 16).to_le_bytes());
+    }
+    out
+}
+
 /// Convert a [`safetensors::Dtype`] to the corresponding GGML dtype constant.
 fn safetensors_dtype_to_ggml(dt: Dtype) -> Result<u32, ExperaiError> {
     match dt {
@@ -442,8 +455,6 @@ pub fn export_to_gguf_to(
     // `gpt2` here would make Ollama/llama-server misinterpret the weights.
     writer.add_metadata("general.architecture", "llama");
     writer.add_metadata("general.name", model_name);
-    // general.file_type: 0 = all F32, 1 = mostly F16 (llama.cpp convention).
-    writer.add_metadata_u32("general.file_type", 0);
 
     let head_dim = model_config.hidden_size / model_config.num_heads;
     writer.add_metadata_u32("llama.block_count", model_config.num_layers as u32);
@@ -489,9 +500,13 @@ pub fn export_to_gguf_to(
             ExperaiError::Export(format!("Failed to read tensor {}: {}", candle_name, e))
         })?;
 
-        let dtype = safetensors_dtype_to_ggml(tensor.dtype())?;
+        let (dtype, data) = match tensor.dtype() {
+            // gguf-rs 0.1 mis-sizes GGML kind 30 (BF16) as block-quantized, so
+            // emit BF16 weights as F32 instead (bf16 is the top half of f32).
+            Dtype::BF16 => (GGML_F32, bf16_to_f32_bytes(tensor.data())),
+            dt => (safetensors_dtype_to_ggml(dt)?, tensor.data().to_vec()),
+        };
         let shape: Vec<u64> = tensor.shape().iter().map(|&s| s as u64).collect();
-        let data = tensor.data().to_vec();
 
         debug!(
             "  Registering: {} shape={:?} dtype={}",
@@ -507,6 +522,10 @@ pub fn export_to_gguf_to(
 
         tensor_data_map.push((gguf_name.to_string(), data, shape, dtype));
     }
+
+    // general.file_type: 0 = all F32, 1 = mostly F16 (llama.cpp convention).
+    let any_f16 = tensor_data_map.iter().any(|(_, _, _, dt)| *dt == GGML_F16);
+    writer.add_metadata_u32("general.file_type", if any_f16 { 1 } else { 0 });
 
     // Write the GGUF header and tensor info section
     writer
@@ -632,5 +651,28 @@ mod tests {
         assert_eq!(meta.bos_token_id, cfg.bos_token_id as u32);
         assert_eq!(meta.eos_token_id, cfg.eos_token_id as u32);
         assert_eq!(meta.pad_token_id, cfg.pad_token_id as u32);
+    }
+}
+
+#[cfg(test)]
+mod bf16_tests {
+    use super::bf16_to_f32_bytes;
+
+    #[test]
+    fn bf16_to_f32_bit_expansion() {
+        // bf16 0x3F80 is 1.0 in bf16 -> f32 bits 0x3F800000
+        let bf16_one = (1.0f32.to_bits() >> 16) as u16;
+        let out = bf16_to_f32_bytes(&bf16_one.to_le_bytes());
+        assert_eq!(
+            u32::from_le_bytes([out[0], out[1], out[2], out[3]]),
+            0x3F800000
+        );
+        // bf16 0xC000 is -2.0 -> f32 bits 0xC0000000
+        let bf16_neg2 = ((-2.0f32).to_bits() >> 16) as u16;
+        let out = bf16_to_f32_bytes(&bf16_neg2.to_le_bytes());
+        assert_eq!(
+            u32::from_le_bytes([out[0], out[1], out[2], out[3]]),
+            0xC0000000
+        );
     }
 }

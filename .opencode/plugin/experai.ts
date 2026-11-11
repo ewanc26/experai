@@ -447,6 +447,22 @@ export default (async () => {
             .number()
             .optional()
             .describe("Micro-batch size per GPU (default 4)."),
+          collection: tool.schema
+            .array(tool.schema.string())
+            .optional()
+            .describe("Collection NSIDs to ingest (e.g. [\"app.bsky.feed.post\"])."),
+          all_collections: tool.schema
+            .boolean()
+            .optional()
+            .describe("Ingest every collection in the repo (with known-set fallback)."),
+          tokenizer: tool.schema
+            .string()
+            .optional()
+            .describe("Path to the tokenizer JSON file."),
+          model_config: tool.schema
+            .string()
+            .optional()
+            .describe("Path to a model_config.json overriding the architecture."),
         },
         async execute(args) {
           const cliArgs = [
@@ -458,12 +474,18 @@ export default (async () => {
           ]
           if (args.max_samples !== undefined)
             cliArgs.push("--max-samples", String(args.max_samples))
+          if (args.collection !== undefined)
+            for (const c of args.collection) cliArgs.push("--collection", c)
+          if (args.all_collections) cliArgs.push("--all-collections")
           if (args.model_name !== undefined)
             cliArgs.push("--model-name", args.model_name)
           if (args.lr !== undefined) cliArgs.push("--lr", String(args.lr))
           if (args.epochs !== undefined) cliArgs.push("--epochs", String(args.epochs))
           if (args.batch_size !== undefined)
             cliArgs.push("--batch-size", String(args.batch_size))
+          if (args.tokenizer !== undefined) cliArgs.push("--tokenizer", args.tokenizer)
+          if (args.model_config !== undefined)
+            cliArgs.push("--model-config", args.model_config)
           return await runExperai(cliArgs)
         },
       }),

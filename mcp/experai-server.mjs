@@ -269,15 +269,23 @@ server.registerTool(
       lr: z.number().positive().optional().describe("Learning rate (default 0.0005)."),
       epochs: z.number().int().positive().optional().describe("Training epochs (default 3)."),
       batch_size: z.number().int().positive().optional().describe("Micro-batch size per GPU (default 4)."),
-    },
+      collection: z.array(z.string()).optional().describe("Collection NSIDs to ingest."),
+      all_collections: z.boolean().optional().describe("Ingest every collection in the repo (with known-set fallback)."),
+      tokenizer: z.string().optional().describe("Path to the tokenizer JSON file."),
+      model_config: z.string().optional().describe("Path to a model_config.json overriding the architecture.")},
   },
   async (args) => {
     const cliArgs = ["at-protocol", "--handle", args.handle, "--output-dir", args.output_dir]
     if (args.max_samples !== undefined) cliArgs.push("--max-samples", String(args.max_samples))
+    if (args.collection !== undefined)
+      for (const c of args.collection) cliArgs.push("--collection", c)
+    if (args.all_collections) cliArgs.push("--all-collections")
     if (args.model_name !== undefined) cliArgs.push("--model-name", args.model_name)
     if (args.lr !== undefined) cliArgs.push("--lr", String(args.lr))
     if (args.epochs !== undefined) cliArgs.push("--epochs", String(args.epochs))
     if (args.batch_size !== undefined) cliArgs.push("--batch-size", String(args.batch_size))
+    if (args.tokenizer !== undefined) cliArgs.push("--tokenizer", args.tokenizer)
+    if (args.model_config !== undefined) cliArgs.push("--model-config", args.model_config)
     return text(await runExperai(cliArgs))
   },
 )

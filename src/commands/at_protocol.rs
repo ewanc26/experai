@@ -19,24 +19,44 @@ pub fn run(
     grad_accum: usize,
     tokenizer: String,
     model_config: Option<String>,
+    collections: Vec<String>,
+    all_collections: bool,
 ) -> Result<()> {
     info!(
         "Starting AT Protocol dataset loading from PDS: {} handle: {} max_samples: {}",
         pds_url, handle, max_samples
     );
 
+    let tok = load_tokenizer(&tokenizer)?;
+
+    let rt = tokio::runtime::Runtime::new()?;
+
+    // Resolve which collections to ingest: explicit --collection list,
+    // --all-collections (listCollections with fallback), or posts by default.
+    let resolved_collections = rt.block_on(async {
+        if !collections.is_empty() {
+            return Ok::<Vec<String>, anyhow::Error>(collections.clone());
+        }
+        if all_collections {
+            let client = crate::at_protocol::ATProtocolClient::new(&pds_url);
+            let did = client.resolve_handle(&handle).await?;
+            return crate::at_protocol::list_repo_collections(&pds_url, &did).await;
+        }
+        Ok(vec!["app.bsky.feed.post".to_string()])
+    })?;
+    info!("Ingesting collections: {:?}", resolved_collections);
+
     let at_config = ATProtocolConfig {
         pds_url: pds_url.clone(),
         handle: handle.clone(),
         max_samples,
+        collections: resolved_collections.clone(),
     };
 
-    let tok = load_tokenizer(&tokenizer)?;
-
-    let rt = tokio::runtime::Runtime::new()?;
     let dataset = rt.block_on(Dataset::from_at_protocol(
         &at_config.pds_url,
         &at_config.handle,
+        &resolved_collections,
         at_config.max_samples,
         tok,
     ))?;

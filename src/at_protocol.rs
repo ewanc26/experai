@@ -14,6 +14,8 @@ pub struct ATProtocolConfig {
     pub pds_url: String,
     pub handle: String,
     pub max_samples: usize,
+    /// Collections to ingest (e.g. `app.bsky.feed.post`); `0` max_samples = unlimited.
+    pub collections: Vec<String>,
 }
 
 impl Default for ATProtocolConfig {
@@ -22,9 +24,26 @@ impl Default for ATProtocolConfig {
             pds_url: "https://bsky.social".to_string(),
             handle: "public".to_string(),
             max_samples: 1000,
+            collections: vec!["app.bsky.feed.post".to_string()],
         }
     }
 }
+
+/// Well-known AT Protocol collections used as the fallback for
+/// `--all-collections` when `com.atproto.repo.listCollections` requires
+/// authentication (some PDSes, e.g. eurosky.social, gate it).
+pub const DEFAULT_COLLECTIONS: [&str; 10] = [
+    "app.bsky.feed.post",
+    "app.bsky.feed.repost",
+    "app.bsky.feed.like",
+    "app.bsky.feed.generator",
+    "app.bsky.feed.threadgate",
+    "app.bsky.graph.follow",
+    "app.bsky.graph.block",
+    "app.bsky.graph.list",
+    "app.bsky.graph.listitem",
+    "app.bsky.actor.profile",
+];
 
 /// A single post record fetched via the AT Protocol.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,8 +164,12 @@ impl ATProtocolClient {
         let mut cursor: Option<String> = None;
 
         loop {
-            // Cap the batch size to remaining records needed
-            let batch_size = (max_records - all_records.len()).min(100) as u8;
+            // Cap the batch size to remaining records needed (0 = unlimited)
+            let batch_size = if max_records == 0 {
+                100
+            } else {
+                (max_records - all_records.len()).min(100) as u8
+            };
             if batch_size == 0 {
                 break;
             }
@@ -242,26 +265,44 @@ impl ATProtocolDataset {
         let did = client.resolve_handle(&self.config.handle).await?;
         info!("Resolved DID: {} for handle: {}", did, self.config.handle);
 
-        let records = client
-            .list_records_paginated(&did, "app.bsky.feed.post", self.config.max_samples)
-            .await?;
-        info!("Found {} records for DID: {}", records.len(), did);
+        let collections = if self.config.collections.is_empty() {
+            vec!["app.bsky.feed.post".to_string()]
+        } else {
+            self.config.collections.clone()
+        };
 
-        for (uri, cid, value) in records.into_iter().take(self.config.max_samples) {
-            if let Some(text) = extract_text_from_value(&value) {
-                let created_at = value
-                    .get("createdAt")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+        for collection in &collections {
+            let records = client
+                .list_records_paginated(&did, collection, self.config.max_samples)
+                .await?;
+            info!(
+                "Found {} records in '{}' for DID: {}",
+                records.len(),
+                collection,
+                did
+            );
 
-                self.samples.push(ATProtocolSample {
-                    uri,
-                    cid,
-                    text,
-                    created_at,
-                    author: did.clone(),
-                });
+            let take = if self.config.max_samples == 0 {
+                usize::MAX
+            } else {
+                self.config.max_samples
+            };
+            for (uri, cid, value) in records.into_iter().take(take) {
+                if let Some(text) = extract_text_from_value(&value) {
+                    let created_at = value
+                        .get("createdAt")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    self.samples.push(ATProtocolSample {
+                        uri,
+                        cid,
+                        text,
+                        created_at,
+                        author: did.clone(),
+                    });
+                }
             }
         }
 
@@ -285,17 +326,72 @@ impl ATProtocolDataset {
     }
 }
 
-/// Extract and trim the `"text"` field from a record's JSON value.
+/// Record fields probed (in order) when extracting trainable text from an
+/// arbitrary repo record — covers posts (`text`), profiles (`description`),
+/// generators/lists (`name`/`description`), and custom collections.
+const TEXT_FIELD_CANDIDATES: [&str; 7] = [
+    "text",
+    "content",
+    "body",
+    "description",
+    "title",
+    "subject",
+    "name",
+];
+
+/// Extract and trim a text field from a record's JSON value.
 ///
-/// Returns `None` if the field is missing, not a string, or empty after trimming.
+/// Returns `None` if no candidate field is present, is not a string, or is
+/// empty after trimming.
 pub fn extract_text_from_value(value: &serde_json::Value) -> Option<String> {
-    if let Some(text) = value.get("text").and_then(|v| v.as_str()) {
-        let cleaned = text.trim();
-        if !cleaned.is_empty() {
-            return Some(cleaned.to_string());
+    for field in TEXT_FIELD_CANDIDATES {
+        if let Some(text) = value.get(field).and_then(|v| v.as_str()) {
+            let cleaned = text.trim();
+            if !cleaned.is_empty() {
+                return Some(cleaned.to_string());
+            }
         }
     }
     None
+}
+
+/// List every collection NSID in a repo via `com.atproto.repo.listCollections`
+/// (plain XRPC GET; atrium-api 0.25 does not generate this method).
+///
+/// Returns the fallback [`DEFAULT_COLLECTIONS`] list when the PDS requires
+/// authentication for this endpoint.
+pub async fn list_repo_collections(pds_url: &str, repo: &str) -> Result<Vec<String>> {
+    let url = format!("{pds_url}/xrpc/com.atproto.repo.listCollections?repo={repo}");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    let resp = client
+        .get(&url)
+        .header(reqwest::header::USER_AGENT, "experai/0.3")
+        .send()
+        .await
+        .map_err(|e| anyhow!("listCollections request failed: {e}"))?;
+    if !resp.status().is_success() {
+        info!(
+            "listCollections returned {} on {pds_url}; using default collection set",
+            resp.status()
+        );
+        return Ok(DEFAULT_COLLECTIONS.iter().map(|s| s.to_string()).collect());
+    }
+    let body: serde_json::Value = serde_json::from_slice(&resp.bytes().await?)?;
+    let collections: Vec<String> = body
+        .get("collections")
+        .and_then(|c| c.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|c| c.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    if collections.is_empty() {
+        return Ok(DEFAULT_COLLECTIONS.iter().map(|s| s.to_string()).collect());
+    }
+    Ok(collections)
 }
 
 /// Convenience function: resolve a handle, fetch posts, and return samples.

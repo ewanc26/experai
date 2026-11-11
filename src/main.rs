@@ -152,9 +152,15 @@ enum Commands {
         /// AT Protocol handle to fetch posts from.
         #[arg(short = 'h', long, default_value = "public")]
         handle: String,
-        /// Maximum number of posts to fetch.
+        /// Maximum number of records to fetch (0 = entire repo).
         #[arg(short = 'n', long, default_value = "1000")]
         max_samples: usize,
+        /// Collection NSID to ingest (repeatable, e.g. --collection app.bsky.feed.like).
+        #[arg(short = 'c', long)]
+        collection: Vec<String>,
+        /// Ingest every collection in the repo (listCollections, with a known-set fallback).
+        #[arg(long)]
+        all_collections: bool,
         /// Directory to save the fetched dataset.
         #[arg(short = 'o', long)]
         output_dir: String,
@@ -430,6 +436,8 @@ fn main() -> Result<()> {
             pds_url,
             handle,
             max_samples,
+            collection,
+            all_collections,
             output_dir,
             model_name,
             lr,
@@ -451,6 +459,8 @@ fn main() -> Result<()> {
                 grad_accum,
                 tokenizer,
                 model_config,
+                collection,
+                all_collections,
             )?;
         }
         Commands::JetstreamTrain {

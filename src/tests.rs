@@ -434,3 +434,27 @@ fn test_clean_text_remove_whitespace() {
 
 // Property-based tests live in `tests/property_tests.rs`, which exercises the
 // same helpers through the public API.
+
+#[test]
+fn test_extract_text_from_value_candidates() {
+    use crate::at_protocol::extract_text_from_value;
+    let post = serde_json::json!({"text": "  hello world  ", "createdAt": "x"});
+    assert_eq!(
+        extract_text_from_value(&post).as_deref(),
+        Some("hello world")
+    );
+    let profile = serde_json::json!({"displayName": "Ewan", "description": "hi there"});
+    assert_eq!(
+        extract_text_from_value(&profile).as_deref(),
+        Some("hi there")
+    );
+    let generator = serde_json::json!({"name": "my feed", "did": "did:web:x"});
+    assert_eq!(
+        extract_text_from_value(&generator).as_deref(),
+        Some("my feed")
+    );
+    let like = serde_json::json!({"subject": {"uri": "at://x"}});
+    assert_eq!(extract_text_from_value(&like), None);
+    let empty = serde_json::json!({"text": "   "});
+    assert_eq!(extract_text_from_value(&empty), None);
+}

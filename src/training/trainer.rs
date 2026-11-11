@@ -211,6 +211,13 @@ impl Trainer {
             if chunk.len() < 2 {
                 continue;
             }
+            // Need at least 2 tokens per sequence to compute a next-token loss.
+            if chunk
+                .iter()
+                .all(|s| s.tokens.len().min(self.config.max_seq_len) < 2)
+            {
+                continue;
+            }
 
             let (input_ids, _attention_mask) = collator.collate(chunk)?;
             let input_ids = input_ids.to_device(&self.device)?;
@@ -248,7 +255,12 @@ impl Trainer {
         let mut total_norm_sq = 0.0_f64;
         for var in vars {
             if let Some(g) = grads.get(var.as_tensor()) {
-                let norm_sq = g.sqr()?.sum_all()?.to_scalar::<f32>()? as f64;
+                // Cast to F32: grads match the var dtype (bf16/fp16 under mixed precision).
+                let norm_sq = g
+                    .to_dtype(DType::F32)?
+                    .sqr()?
+                    .sum_all()?
+                    .to_scalar::<f32>()? as f64;
                 total_norm_sq += norm_sq;
             }
         }
@@ -358,6 +370,14 @@ impl Trainer {
                 } else {
                     chunk
                 };
+                // Need >= 2 tokens in the longest sequence of the effective chunk
+                // to compute a next-token loss (else the shifted logits are empty).
+                if effective_chunk
+                    .iter()
+                    .all(|s| s.tokens.len().min(self.config.max_seq_len) < 2)
+                {
+                    continue;
+                }
 
                 let (input_ids, _attention_mask) = collator.collate(effective_chunk)?;
                 let input_ids = input_ids.to_device(&self.device)?;

@@ -89,6 +89,7 @@ impl Dataset {
     pub async fn from_at_protocol(
         pds_url: &str,
         handle: &str,
+        collections: &[String],
         max_samples: usize,
         tokenizer: Tokenizer,
     ) -> Result<Self, ExperaiError> {
@@ -105,15 +106,35 @@ impl Dataset {
             did, handle, pds_url
         );
 
-        let records = client
-            .list_records_paginated(&did, "app.bsky.feed.post", max_samples)
-            .await
-            .map_err(|e| {
-                ExperaiError::AtProtocol(format!("failed to list records for {did}: {e}"))
-            })?;
-        info!("Found {} records for DID: {}", records.len(), did);
+        let collections: Vec<String> = if collections.is_empty() {
+            vec!["app.bsky.feed.post".to_string()]
+        } else {
+            collections.to_vec()
+        };
 
-        for (_uri, _cid, value) in records {
+        let mut records: Vec<(String, String, serde_json::Value, String)> = Vec::new();
+        for collection in &collections {
+            let page = client
+                .list_records_paginated(&did, collection, max_samples)
+                .await
+                .map_err(|e| {
+                    ExperaiError::AtProtocol(format!(
+                        "failed to list records of {collection} for {did}: {e}"
+                    ))
+                })?;
+            info!(
+                "Found {} records in '{}' for DID: {}",
+                page.len(),
+                collection,
+                did
+            );
+            records.extend(
+                page.into_iter()
+                    .map(|(uri, cid, value)| (uri, cid, value, collection.clone())),
+            );
+        }
+
+        for (_uri, _cid, value, collection) in records {
             if let Some(text) = extract_text_from_value(&value) {
                 let did = value
                     .get("did")
@@ -128,12 +149,12 @@ impl Dataset {
                 samples.push(DatasetSample {
                     text,
                     tokens,
-                    label: Some("at_protocol".to_string()),
+                    label: Some(collection),
                     did,
                 });
             }
 
-            if samples.len() >= max_samples {
+            if max_samples > 0 && samples.len() >= max_samples {
                 warn!(
                     "Reached maximum sample limit ({}) from AT Protocol",
                     max_samples
