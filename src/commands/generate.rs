@@ -24,7 +24,18 @@ pub fn run(
     info!("Starting generation: model={}, prompt={}", model, prompt);
     let tok = load_tokenizer(&tokenizer)?;
 
-    let model_config = ModelConfig::default();
+    // Prefer the model_config.json saved alongside the checkpoint so trained
+    // models with a non-default architecture generate correctly.
+    let model_config = {
+        let cfg_path = format!("{}/model_config.json", model);
+        if std::path::Path::new(&cfg_path).exists() {
+            let raw = std::fs::read_to_string(&cfg_path)?;
+            serde_json::from_str(&raw)
+                .map_err(|e| anyhow::anyhow!("Failed to parse {cfg_path}: {e}"))?
+        } else {
+            ModelConfig::default()
+        }
+    };
     let device = utils::device_from_env().to_candle()?;
     let mut var_map = candle_nn::VarMap::new();
     let vb = candle_nn::VarBuilder::from_varmap(&var_map, candle_core::DType::F32, &device);

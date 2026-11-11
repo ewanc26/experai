@@ -1,12 +1,191 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use gguf_rs::writer::{GGUFWriter, TensorInfo};
+use gguf_rs::writer::{GGUFWriter, MetadataValue, TensorInfo};
 use safetensors::{Dtype, SafeTensors};
 use tracing::{debug, info};
 
 use crate::errors::ExperaiError;
 use crate::model::ModelConfig;
+
+/// llama.cpp `token_type` values used in `tokenizer.ggml.token_type`.
+const TOKEN_TYPE_NORMAL: u32 = 0;
+const TOKEN_TYPE_UNKNOWN: u32 = 1;
+const TOKEN_TYPE_CONTROL: u32 = 2;
+const TOKEN_TYPE_BYTE: u32 = 5;
+
+/// Tokenizer metadata embedded into a GGUF file so llama.cpp-based runtimes
+/// (Ollama, LM Studio, OpenCode via a local server) can tokenize prompts.
+#[derive(Debug, Clone)]
+pub struct TokenizerMetadata {
+    /// One entry per token id (index = id, padded with empty strings).
+    pub tokens: Vec<String>,
+    /// Parallel to `tokens`: llama.cpp token types.
+    pub token_types: Vec<u32>,
+    /// BPE merges as `"a b"` strings.
+    pub merges: Vec<String>,
+    pub bos_token_id: u32,
+    pub eos_token_id: u32,
+    pub pad_token_id: u32,
+    pub unk_token_id: u32,
+    pub chat_template: String,
+}
+
+/// Default chat template written into the GGUF. Uses the bos/eos tokens so a
+/// base model can be driven as a chat model by OpenCode/Ollama.
+const DEFAULT_CHAT_TEMPLATE: &str = "{%- if messages[0]['role'] == 'system' -%}\n{{- bos_token + messages[0]['content'] + eos_token }}\n{%- set messages = messages[1:] -%}\n{%- endif -%}\n{%- for message in messages -%}\n{{- bos_token + message['role'] | capitalize + ': ' + message['content'] + eos_token }}\n{%- endfor -%}\n{%- if add_generation_prompt -%}\n{{- bos_token + 'Assistant: ' }}\n{%- endif -%}";
+
+/// Token contents recognised as bos/eos/pad/unk special tokens.
+const BOS_NAMES: [&str; 2] = ["<s>", "<|startoftext|>"];
+const EOS_NAMES: [&str; 2] = ["</s>", "<|endoftext|>"];
+const PAD_NAMES: [&str; 2] = ["<pad>", "<|pad|>"];
+const UNK_NAMES: [&str; 3] = ["<unk>", "[UNK]", "<|unk|>"];
+
+/// In GPT-2's byte-level BPE, byte-fallback tokens are single chars with a
+/// code point >= 256 (e.g. `Ġ` for byte 32).
+fn is_byte_fallback_token(token: &str) -> bool {
+    let mut chars = token.chars();
+    matches!(chars.next(), Some(c) if (c as u32) >= 256) && chars.next().is_none()
+}
+
+/// Build [`TokenizerMetadata`] from a parsed HuggingFace `tokenizers` JSON
+/// document, falling back to `model_config` special-token ids.
+pub fn tokenizer_metadata_from_json(
+    tokenizer_json: &serde_json::Value,
+    model_config: &ModelConfig,
+) -> Result<TokenizerMetadata, ExperaiError> {
+    let vocab_size = model_config.vocab_size;
+    let mut tokens: Vec<String> = vec![String::new(); vocab_size];
+    let mut token_types: Vec<u32> = vec![TOKEN_TYPE_NORMAL; vocab_size];
+
+    // Base vocab from model.vocab (token -> id).
+    if let Some(vocab) = tokenizer_json
+        .get("model")
+        .and_then(|m| m.get("vocab"))
+        .and_then(|v| v.as_object())
+    {
+        for (token, id) in vocab {
+            if let Some(id) = id.as_u64() {
+                if (id as usize) < vocab_size {
+                    tokens[id as usize] = token.clone();
+                    if is_byte_fallback_token(token) {
+                        token_types[id as usize] = TOKEN_TYPE_BYTE;
+                    }
+                }
+            }
+        }
+    }
+
+    // Added (special) tokens override base vocab entries and become control
+    // tokens; the unk token becomes type unknown.
+    let mut bos = None;
+    let mut eos = None;
+    let mut pad = None;
+    let mut unk = None;
+    if let Some(added) = tokenizer_json
+        .get("added_tokens")
+        .and_then(|t| t.as_array())
+    {
+        for entry in added {
+            let (Some(id), Some(content)) = (
+                entry.get("id").and_then(|v| v.as_u64()),
+                entry.get("content").and_then(|v| v.as_str()),
+            ) else {
+                continue;
+            };
+            if (id as usize) >= vocab_size {
+                continue;
+            }
+            tokens[id as usize] = content.to_string();
+            let special = entry
+                .get("special")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if special {
+                token_types[id as usize] = TOKEN_TYPE_CONTROL;
+            }
+            if BOS_NAMES.contains(&content) {
+                bos = Some(id as u32);
+            } else if EOS_NAMES.contains(&content) {
+                eos = Some(id as u32);
+            } else if PAD_NAMES.contains(&content) {
+                pad = Some(id as u32);
+            } else if UNK_NAMES.contains(&content) {
+                unk = Some(id as u32);
+                token_types[id as usize] = TOKEN_TYPE_UNKNOWN;
+            }
+        }
+    }
+
+    // BPE merges: entries are either "a b" strings or ["a", "b"] pairs.
+    let mut merges = Vec::new();
+    if let Some(m) = tokenizer_json
+        .get("model")
+        .and_then(|m| m.get("merges"))
+        .and_then(|v| v.as_array())
+    {
+        for merge in m {
+            match merge {
+                serde_json::Value::String(s) => merges.push(s.clone()),
+                serde_json::Value::Array(pair) if pair.len() == 2 => {
+                    if let (Some(a), Some(b)) = (pair[0].as_str(), pair[1].as_str()) {
+                        merges.push(format!("{a} {b}"));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(TokenizerMetadata {
+        tokens,
+        token_types,
+        merges,
+        bos_token_id: bos.unwrap_or(model_config.bos_token_id as u32),
+        eos_token_id: eos.unwrap_or(model_config.eos_token_id as u32),
+        pad_token_id: pad.unwrap_or(model_config.pad_token_id as u32),
+        unk_token_id: unk.unwrap_or(model_config.pad_token_id as u32),
+        chat_template: DEFAULT_CHAT_TEMPLATE.to_string(),
+    })
+}
+
+/// Write tokenizer metadata keys into a GGUF writer.
+fn write_tokenizer_metadata(
+    writer: &mut GGUFWriter,
+    meta: &TokenizerMetadata,
+) -> Result<(), ExperaiError> {
+    writer.add_metadata_array(
+        "tokenizer.ggml.tokens",
+        meta.tokens
+            .iter()
+            .map(|t| MetadataValue::String(t.clone()))
+            .collect(),
+    );
+    writer.add_metadata_array(
+        "tokenizer.ggml.token_type",
+        meta.token_types
+            .iter()
+            .map(|t| MetadataValue::Uint32(*t))
+            .collect(),
+    );
+    if !meta.merges.is_empty() {
+        writer.add_metadata_array(
+            "tokenizer.ggml.merges",
+            meta.merges
+                .iter()
+                .map(|m| MetadataValue::String(m.clone()))
+                .collect(),
+        );
+    }
+    writer.add_metadata_u32("tokenizer.ggml.bos_token_id", meta.bos_token_id);
+    writer.add_metadata_u32("tokenizer.ggml.eos_token_id", meta.eos_token_id);
+    writer.add_metadata_u32("tokenizer.ggml.pad_token_id", meta.pad_token_id);
+    writer.add_metadata_u32("tokenizer.ggml.unk_token_id", meta.unk_token_id);
+    writer.add_metadata_bool("tokenizer.ggml.add_bos_token", false);
+    writer.add_metadata_bool("tokenizer.ggml.add_eos_token", false);
+    writer.add_metadata("tokenizer.chat_template", &meta.chat_template);
+    Ok(())
+}
 
 /// GGML dtype constants used in the GGUF file format.
 const GGML_F32: u32 = 0;
@@ -127,7 +306,7 @@ fn map_tensor_name(candle_name: &str) -> Result<String, ExperaiError> {
 }
 
 /// Load a [`ModelConfig`] from `model_config.json` in the given directory.
-fn load_model_config(checkpoint_dir: &Path) -> Result<ModelConfig, ExperaiError> {
+pub fn load_model_config(checkpoint_dir: &Path) -> Result<ModelConfig, ExperaiError> {
     let config_path = checkpoint_dir.join("model_config.json");
     let data = std::fs::read_to_string(&config_path).map_err(|e| {
         ExperaiError::Export(format!(
@@ -162,6 +341,35 @@ pub fn export_to_gguf(
     lmstudio_dir: Option<&str>,
     _dtype: &str,
 ) -> Result<(), ExperaiError> {
+    // Determine output directory (custom path or default LM Studio location)
+    let lmstudio_base = match lmstudio_dir {
+        Some(dir) => PathBuf::from(dir),
+        None => {
+            let home = std::env::var("HOME")
+                .map_err(|_| ExperaiError::Config("HOME not set".to_string()))?;
+            PathBuf::from(home)
+                .join(".lmstudio")
+                .join("models")
+                .join("custom")
+        }
+    };
+    let output_dir = lmstudio_base.join(model_name);
+    export_to_gguf_to(checkpoint_path, model_name, &output_dir, _dtype, None)?;
+    Ok(())
+}
+
+/// Export a safetensors checkpoint to GGUF in an explicit output directory,
+/// optionally embedding tokenizer metadata so the file is self-contained for
+/// llama.cpp-based runtimes (Ollama, LM Studio, OpenCode local providers).
+///
+/// Returns the path of the written GGUF file.
+pub fn export_to_gguf_to(
+    checkpoint_path: &str,
+    model_name: &str,
+    output_dir: &Path,
+    _dtype: &str,
+    tokenizer_meta: Option<&TokenizerMetadata>,
+) -> Result<PathBuf, ExperaiError> {
     let checkpoint_path = Path::new(checkpoint_path);
     let checkpoint_dir = checkpoint_path
         .parent()
@@ -208,21 +416,7 @@ pub fn export_to_gguf(
         name_map.insert(name.to_string(), gguf_name);
     }
 
-    // Determine output directory (custom path or default LM Studio location)
-    let lmstudio_base = match lmstudio_dir {
-        Some(dir) => PathBuf::from(dir),
-        None => {
-            let home = std::env::var("HOME")
-                .map_err(|_| ExperaiError::Config("HOME not set".to_string()))?;
-            PathBuf::from(home)
-                .join(".lmstudio")
-                .join("models")
-                .join("custom")
-        }
-    };
-
-    let output_dir = lmstudio_base.join(model_name);
-    std::fs::create_dir_all(&output_dir).map_err(|e| {
+    std::fs::create_dir_all(output_dir).map_err(|e| {
         ExperaiError::Export(format!("Failed to create {}: {}", output_dir.display(), e))
     })?;
 
@@ -251,6 +445,17 @@ pub fn export_to_gguf(
         "gpt2.layer_norm_epsilon",
         model_config.layer_norm_eps as f32,
     );
+
+    // Embed tokenizer metadata (vocab, merges, special ids, chat template) so
+    // the GGUF is directly consumable by Ollama / OpenCode local providers.
+    if let Some(meta) = tokenizer_meta {
+        write_tokenizer_metadata(&mut writer, meta)?;
+        info!(
+            "Embedded tokenizer metadata: {} tokens, {} merges",
+            meta.tokens.len(),
+            meta.merges.len()
+        );
+    }
 
     // Sort tensors by name for deterministic output order
     let mut ordered_names: Vec<(&String, &String)> = name_map.iter().collect();
@@ -315,5 +520,5 @@ pub fn export_to_gguf(
         gguf_size as f64 / 1_048_576.0
     );
 
-    Ok(())
+    Ok(gguf_path)
 }

@@ -72,6 +72,17 @@ impl Dataset {
         })
     }
 
+    /// Load a dataset from any supported source (JSONL, JSON, CSV/TSV, plain
+    /// text, a directory, or `-` for stdin). See [`crate::data::loader`].
+    pub fn from_path(
+        path: &str,
+        tokenizer: Tokenizer,
+        max_length: usize,
+        options: &crate::data::loader::LoadOptions,
+    ) -> Result<Self, ExperaiError> {
+        crate::data::loader::load_dataset(path, tokenizer, max_length, options)
+    }
+
     /// Fetch posts from an AT Protocol PDS and build a dataset.
     /// Resolves the handle to a DID, paginates through `app.bsky.feed.post` records,
     /// and tokenizes each post's text.

@@ -123,14 +123,28 @@ export default (async () => {
 
       experai_train: tool({
         description:
-          "Train an experai model on a tokenized JSONL dataset. Long-running.",
+          "Train an experai model on any data: JSONL, JSON, CSV/TSV, plain text, a directory, or `-` for stdin. Long-running.",
         args: {
           model: tool.schema
             .string()
             .describe("Pretrained model name or path (e.g. gpt2)."),
           data: tool.schema
             .string()
-            .describe("Path to the training dataset directory/file."),
+            .describe(
+              "Training data: a JSONL/JSON/CSV/text file, a directory (walked recursively), or `-` for stdin.",
+            ),
+          data_format: tool.schema
+            .string()
+            .optional()
+            .describe(
+              "Force input format: auto (default), jsonl, json, csv, text, dir.",
+            ),
+          text_column: tool.schema
+            .string()
+            .optional()
+            .describe(
+              "CSV column holding the training text (default: text/content/body, else first column).",
+            ),
           output_dir: tool.schema
             .string()
             .describe("Directory to write checkpoints and logs."),
@@ -166,6 +180,10 @@ export default (async () => {
           if (args.grad_accum !== undefined)
             cliArgs.push("--grad-accum", String(args.grad_accum))
           if (args.resume) cliArgs.push("--resume")
+          if (args.data_format !== undefined)
+            cliArgs.push("--data-format", args.data_format)
+          if (args.text_column !== undefined)
+            cliArgs.push("--text-column", args.text_column)
           return await runExperai(cliArgs)
         },
       }),
@@ -244,6 +262,62 @@ export default (async () => {
           return await runExperai(cliArgs)
         },
        }),
+
+      experai_opencode: tool({
+        description:
+          "Package a trained checkpoint for use as a local model in OpenCode: exports a self-contained GGUF (with tokenizer metadata), writes an Ollama Modelfile, and emits/merges the opencode.json provider config.",
+        args: {
+          checkpoint: tool.schema
+            .string()
+            .describe("Path to the checkpoint directory (contains .safetensors + model_config.json)."),
+          name: tool.schema
+            .string()
+            .describe("Model name (GGUF file, Ollama model, and opencode model id)."),
+          output_dir: tool.schema
+            .string()
+            .optional()
+            .describe("Where to write GGUF/Modelfile/snippet (default <checkpoint>/opencode)."),
+          tokenizer: tool.schema
+            .string()
+            .optional()
+            .describe("Path to the tokenizer JSON file embedded into the GGUF."),
+          provider: tool.schema
+            .string()
+            .optional()
+            .describe("OpenCode provider id (default experai)."),
+          base_url: tool.schema
+            .string()
+            .optional()
+            .describe("OpenAI-compatible endpoint (default http://localhost:11434/v1)."),
+          config_path: tool.schema
+            .string()
+            .optional()
+            .describe("Merge the provider/model into this opencode.json path."),
+          json: tool.schema
+            .boolean()
+            .optional()
+            .describe("Emit machine-readable JSON on stdout."),
+        },
+        async execute(args) {
+          const cliArgs = [
+            "opencode",
+            "--checkpoint",
+            args.checkpoint,
+            "--name",
+            args.name,
+          ]
+          if (args.output_dir !== undefined)
+            cliArgs.push("--output-dir", args.output_dir)
+          if (args.tokenizer !== undefined)
+            cliArgs.push("--tokenizer", args.tokenizer)
+          if (args.provider !== undefined) cliArgs.push("--provider", args.provider)
+          if (args.base_url !== undefined) cliArgs.push("--base-url", args.base_url)
+          if (args.config_path !== undefined)
+            cliArgs.push("--config-path", args.config_path)
+          if (args.json) cliArgs.push("--json")
+          return await runExperai(cliArgs)
+        },
+      }),
 
       experai_publish_weight: tool({
         description:

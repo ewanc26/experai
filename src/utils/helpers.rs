@@ -7,7 +7,9 @@ use tracing::{event, info, Level};
 /// When `test_mode` is `true`, output is written to `stderr` instead of stdout
 /// so that test `println!` output stays clean.
 pub fn init_tracing(log_level: Option<String>, test_mode: bool) -> Result<()> {
-    Ok(crate::logging::init_logger(log_level, test_mode)?)
+    Ok(crate::logging::init_logger(
+        log_level, test_mode, test_mode,
+    )?)
 }
 
 /// Seed the global random number generator for reproducibility.

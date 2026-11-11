@@ -33,9 +33,16 @@ enum Commands {
         /// Path to the pretrained model weights or HuggingFace model ID.
         #[arg(short, long)]
         model: String,
-        /// Path to the training dataset directory.
+        /// Path to the training data: a JSONL/JSON/CSV/text file, a directory
+        /// (walked recursively), or `-` to read from stdin.
         #[arg(short, long)]
         data: String,
+        /// Force the input data format (default: auto-detect from extension/content).
+        #[arg(long, default_value = "auto")]
+        data_format: String,
+        /// CSV column holding the training text (default: text/content/body, else first column).
+        #[arg(long)]
+        text_column: Option<String>,
         /// Learning rate for the optimizer.
         #[arg(short = 'l', long, default_value = "0.0005")]
         lr: f64,
@@ -220,6 +227,34 @@ enum Commands {
         #[arg(long, default_value = "f16")]
         dtype: String,
     },
+    /// Package a trained checkpoint for use as a local model in OpenCode.
+    ///
+    /// Exports the checkpoint to GGUF (with tokenizer metadata), writes an
+    /// Ollama Modelfile, and emits/merges the opencode.json provider config so
+    /// the model can be selected in OpenCode as `<provider>/<name>`.
+    Opencode {
+        /// Path to the checkpoint directory (must contain a .safetensors file and model_config.json).
+        #[arg(short, long)]
+        checkpoint: String,
+        /// Model name used for the GGUF file, Ollama model, and opencode model id.
+        #[arg(short, long)]
+        name: String,
+        /// Directory to write the GGUF, Modelfile, and config snippet (default: `<checkpoint>/opencode`).
+        #[arg(long)]
+        output_dir: Option<String>,
+        /// Path to the tokenizer JSON file (embedded into the GGUF).
+        #[arg(short, long, default_value = "models/tokenizer.json")]
+        tokenizer: String,
+        /// OpenCode provider id to register (default: `experai`).
+        #[arg(long, default_value = "experai")]
+        provider: String,
+        /// Base URL of the OpenAI-compatible local server (default: Ollama).
+        #[arg(long, default_value = "http://localhost:11434/v1")]
+        base_url: String,
+        /// Merge the provider/model into this opencode.json instead of only printing it.
+        #[arg(long)]
+        config_path: Option<String>,
+    },
     /// Publish trained model weights to an AT Protocol repo.
     PublishWeight {
         /// Path to the checkpoint directory (must contain a .safetensors file and model_config.json).
@@ -271,13 +306,16 @@ fn main() -> Result<()> {
 
     // Allow overriding the log level via environment variable.
     let log_level = std::env::var("EXPERAI_LOG_LEVEL").ok();
-    init_logger(log_level, false)?;
+    // With --json, keep stdout machine-readable: send logs to stderr.
+    init_logger(log_level, false, cli.json)?;
 
     // Dispatch to the appropriate command handler.
     match command {
         Commands::Train {
             model,
             data,
+            data_format,
+            text_column,
             lr,
             epochs,
             batch_size,
@@ -308,6 +346,8 @@ fn main() -> Result<()> {
                 restore_best_weights,
                 log_metrics_csv,
                 freeze_layers,
+                data_format,
+                text_column,
             )?;
         }
         Commands::Preprocess {
@@ -416,6 +456,26 @@ fn main() -> Result<()> {
             dtype,
         } => {
             experai::commands::package::run(checkpoint, name, lmstudio_dir, dtype)?;
+        }
+        Commands::Opencode {
+            checkpoint,
+            name,
+            output_dir,
+            tokenizer,
+            provider,
+            base_url,
+            config_path,
+        } => {
+            experai::commands::opencode::run(
+                checkpoint,
+                name,
+                output_dir,
+                tokenizer,
+                provider,
+                base_url,
+                config_path,
+                cli.json,
+            )?;
         }
         Commands::PublishWeight {
             checkpoint,

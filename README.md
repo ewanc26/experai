@@ -5,6 +5,8 @@ A small language model training toolkit built in Rust using the Candle ML framew
 ## Features
 
 - **Hardware-Aware Training** - Automatically detects GPU/CPU and optimizes batch size, precision, and memory usage
+- **Train on Any Data** - JSONL, JSON, CSV/TSV, plain text, whole directories, or stdin — format auto-detected
+- **OpenCode-Ready Models** - One command packages a checkpoint as a self-contained GGUF + Ollama Modelfile + `opencode.json` provider, so your trained model is selectable in OpenCode
 - **AT Protocol Integration** - Train on data from Bluesky via REST API or real-time Jetstream streaming
 - **CLI Interface** - Full-featured command line with train, preprocess, generate, and data loading commands
 - **Mixed Precision** - Automatic bf16/fp16/fp32 selection based on hardware capabilities
@@ -80,9 +82,11 @@ The `models/` directory is gitignored, so each machine needs to fetch the tokeni
 
 | Command | Description |
 |---------|-------------|
-| `train` | Train a model on a JSONL dataset |
+| `train` | Train a model on any data (JSONL/JSON/CSV/text/dir/stdin) |
 | `preprocess` | Clean and tokenize raw text data |
 | `generate` | Generate text from a trained model |
+| `package` | Export a checkpoint to GGUF for LM Studio |
+| `opencode` | Package a checkpoint as a local model usable in OpenCode |
 | `at-protocol` | Load training data from a Bluesky user |
 | `jetstream-train` | Stream and train from the AT Protocol firehose |
 
@@ -93,6 +97,34 @@ experai --support   # Print sponsor links and exit
 experai             # No subcommand: show help
 ```
 
+### Train on any data
+
+`--data` accepts more than JSONL. The format is auto-detected from the file
+extension and content, or forced with `--data-format`:
+
+| Input | Format | Notes |
+|-------|--------|-------|
+| `data.jsonl` / `data.ndjson` | JSONL | one JSON object per line; text from `text`/`content`/`body`/... |
+| `data.json` | JSON | array of strings/objects, or `{"data": [...]}`-style wrappers |
+| `data.csv` / `data.tsv` | CSV/TSV | header row; text column via `--text-column` (default `text`, else first column) |
+| `notes.txt`, `README.md`, code files | Text | split on blank lines; long docs hard-split at `max_seq_len` tokens |
+| `path/to/dir/` | Directory | walked recursively; each file loaded by its own format |
+| `-` | stdin | content sniffed (JSON array → JSON, JSON lines → JSONL, header row → CSV, else text) |
+
+```bash
+# Plain text file
+experai train --model gpt2 --data notes.txt --output-dir output --auto-tune
+
+# CSV with a custom text column
+experai train --model gpt2 --data posts.csv --text-column body --output-dir output
+
+# A whole directory of mixed files
+experai train --model gpt2 --data ./corpus --output-dir output
+
+# Pipe data in
+git log --pretty=format:'%s%n%n%b' | experai train --model gpt2 --data - --output-dir output
+```
+
 ### Train
 
 ```bash
@@ -100,7 +132,9 @@ experai train [OPTIONS]
 
 Options:
   -m, --model <MODEL>           Model name
-  -d, --data <DATA>             Path to JSONL training data
+  -d, --data <DATA>             Training data: JSONL/JSON/CSV/text file, directory, or `-` for stdin
+      --data-format <FORMAT>    Force format: auto (default), jsonl, json, csv, text, dir
+      --text-column <COLUMN>    CSV column holding the training text
   -o, --output-dir <OUTPUT_DIR> Output directory
   -e, --epochs <EPOCHS>         Number of epochs [default: 3]
   -b, --batch-size <BATCH_SIZE> Batch size [default: 4]
@@ -164,7 +198,7 @@ At critical levels, batch size is scaled to 25%, learning rate to 50%, and preci
 
 ## Data Format
 
-Training data should be in JSONL format with a `text` field:
+The classic format is JSONL with a `text` field:
 
 ```json
 {"text": "The quick brown fox jumps over the lazy dog"}
@@ -176,6 +210,10 @@ Optional `label` field for classification tasks:
 ```json
 {"text": "This is positive sentiment", "label": "positive"}
 ```
+
+But `train --data` accepts **any** of the formats described in
+[Train on any data](#train-on-any-data) — JSONL, JSON arrays, CSV/TSV, plain
+text, directories, and stdin — so existing corpora need no conversion.
 
 ## Configuration
 
@@ -241,7 +279,7 @@ the toolkit from an agent or the TUI:
 
 - **Plugin** — `.opencode/plugin/experai.ts` registers `experai_*` tools
   (`experai_support`, `experai_generate`, `experai_train`, `experai_preprocess`,
-  `experai_package`, `experai_atprotocol`, `experai_jetstream`,
+  `experai_package`, `experai_opencode`, `experai_atprotocol`, `experai_jetstream`,
   `experai_publish_weight`, `experai_commands`) that shell out to the compiled binary.
 - **Slash command** — `/experai <args>` runs the CLI and summarizes the result.
 - **MCP server** — `mcp/experai-server.mjs` exposes the same capabilities as
@@ -267,7 +305,68 @@ Machine-readable output is available for tooling:
 experai --support --json   # structured sponsor links
 experai --json             # CLI metadata: name, version, subcommands
 experai generate --model output --prompt "..." --json   # {"text": "...", "tokens": N}
+experai opencode --checkpoint output --name my-model --json   # packaging result as JSON
 ```
+
+Note: with the global `--json` flag, logs are sent to stderr so stdout stays
+machine-readable.
+
+## Using trained models in OpenCode
+
+`experai opencode` turns a trained checkpoint into a model you can select in
+OpenCode. It:
+
+1. Exports the checkpoint to a **self-contained GGUF** (weights plus
+   `tokenizer.ggml.*` vocab/merges/special-token metadata and a chat template),
+   written to `<checkpoint>/opencode/<name>.gguf`.
+2. Writes an **Ollama `Modelfile`** next to it, so
+   `ollama create <name> -f Modelfile` serves the model on an
+   OpenAI-compatible endpoint (`http://localhost:11434/v1`). OpenCode
+   auto-discovers Ollama at `127.0.0.1:11434`.
+3. Emits the **`opencode.json` provider snippet** (and merges it into an
+   existing config when `--config-path` is given) using the OpenCode v2
+   `providers` schema — an `@opencode/ai/providers/openai-compatible` package
+   with `settings.baseURL` — so the model appears as `<provider>/<name>`:
+
+```bash
+experai opencode \
+  --checkpoint output \
+  --name my-coder \
+  --tokenizer models/tokenizer.json \
+  --provider experai \
+  --config-path opencode.json
+
+ollama create my-coder -f output/opencode/Modelfile
+# In OpenCode: select the model `experai/my-coder` (see /models)
+```
+
+The generated config looks like:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "providers": {
+    "experai": {
+      "name": "experai local (my-coder)",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": { "baseURL": "http://localhost:11434/v1" },
+      "models": {
+        "my-coder": {
+          "name": "my-coder",
+          "modelID": "my-coder",
+          "type": "chat",
+          "limit": { "context": 2048, "output": 1024 },
+          "capabilities": { "tools": false, "temperature": true, "reasoning": { "supported": false } }
+        }
+      }
+    }
+  },
+  "model": "experai/my-coder"
+}
+```
+
+Any other OpenAI-compatible server (llama.cpp `llama-server`, LM Studio, vLLM)
+works too — just point `--base-url` at its `/v1` endpoint.
 
 ## Publishing weights to AT Protocol
 

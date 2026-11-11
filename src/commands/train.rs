@@ -1,4 +1,4 @@
-use crate::data::{load_tokenizer, validate_dataset, Dataset};
+use crate::data::{load_tokenizer, validate_dataset, DataFormat, LoadOptions};
 use crate::model::ModelConfig;
 use crate::training::{Trainer, TrainingConfig};
 use crate::utils;
@@ -23,6 +23,8 @@ pub fn run(
     restore_best_weights: bool,
     log_metrics_csv: bool,
     freeze_layers: usize,
+    data_format: String,
+    text_column: Option<String>,
 ) -> Result<()> {
     info!(
         "Starting training: model={}, data={}, lr={}, epochs={}",
@@ -80,7 +82,11 @@ pub fn run(
     let tok = load_tokenizer(&tokenizer)?;
     info!("Loaded tokenizer from {}", tokenizer);
 
-    let dataset = Dataset::from_jsonl(&data, tok, final_config.max_seq_len)?;
+    let load_options = LoadOptions {
+        format: data_format.parse::<DataFormat>()?,
+        text_column: text_column.clone(),
+    };
+    let dataset = crate::data::load_dataset(&data, tok, final_config.max_seq_len, &load_options)?;
     info!("Loaded {} samples from {}", dataset.len(), data);
 
     validate_dataset(&dataset)?;

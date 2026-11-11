@@ -14,9 +14,12 @@ use tracing_subscriber::{fmt, EnvFilter};
 ///   Defaults to `"info"` when `None`.
 /// * `test_mode` - When `true`, uses the pretty-print formatter for
 ///   human-readable output; otherwise emits JSON logs.
+/// * `logs_to_stderr` - When `true`, logs go to stderr so stdout stays
+///   machine-readable (used with the global `--json` flag).
 pub fn init_logger(
     log_level: Option<String>,
     test_mode: bool,
+    logs_to_stderr: bool,
 ) -> Result<(), crate::errors::ExperaiError> {
     let level = log_level.unwrap_or_else(|| "info".to_string());
     let env_filter = EnvFilter::try_new(&level).map_err(|e| {
@@ -25,16 +28,23 @@ pub fn init_logger(
         ))
     })?;
 
+    use std::io;
+    let writer: tracing_subscriber::fmt::writer::BoxMakeWriter = if logs_to_stderr {
+        tracing_subscriber::fmt::writer::BoxMakeWriter::new(Box::new(io::stderr))
+    } else {
+        tracing_subscriber::fmt::writer::BoxMakeWriter::new(Box::new(io::stdout))
+    };
+
     if test_mode {
         tracing_subscriber::registry()
             .with(env_filter)
-            .with(fmt::layer().pretty())
+            .with(fmt::layer().pretty().with_writer(writer))
             .try_init()
             .ok();
     } else {
         tracing_subscriber::registry()
             .with(env_filter)
-            .with(fmt::layer().json())
+            .with(fmt::layer().json().with_writer(writer))
             .try_init()
             .ok();
     }

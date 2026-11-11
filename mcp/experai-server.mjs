@@ -120,10 +120,20 @@ server.registerTool(
   {
     title: "Train a model",
     description:
-      "Train an experai model on a tokenized JSONL dataset. Long-running; the client should allow generous timeouts.",
+      "Train an experai model on any data: JSONL, JSON, CSV/TSV, plain text, a directory, or `-` for stdin. Long-running; the client should allow generous timeouts.",
     inputSchema: {
       model: z.string().describe("Pretrained model name or path (e.g. gpt2)."),
-      data: z.string().describe("Path to the training dataset directory/file."),
+      data: z
+        .string()
+        .describe("Training data: a JSONL/JSON/CSV/text file, a directory (walked recursively), or `-` for stdin."),
+      data_format: z
+        .enum(["auto", "jsonl", "json", "csv", "text", "dir"])
+        .optional()
+        .describe("Force input format (default auto-detect)."),
+      text_column: z
+        .string()
+        .optional()
+        .describe("CSV column holding the training text (default: text/content/body, else first column)."),
       output_dir: z.string().describe("Directory to write checkpoints and logs."),
       lr: z.number().positive().optional().describe("Learning rate (default 0.0005)."),
       epochs: z.number().int().positive().optional().describe("Training epochs (default 3)."),
@@ -139,6 +149,8 @@ server.registerTool(
     if (args.batch_size !== undefined) cliArgs.push("--batch-size", String(args.batch_size))
     if (args.grad_accum !== undefined) cliArgs.push("--grad-accum", String(args.grad_accum))
     if (args.resume) cliArgs.push("--resume")
+    if (args.data_format !== undefined) cliArgs.push("--data-format", args.data_format)
+    if (args.text_column !== undefined) cliArgs.push("--text-column", args.text_column)
     return text(await runExperai(cliArgs))
   },
 )
@@ -184,6 +196,35 @@ server.registerTool(
     const cliArgs = ["package", "--checkpoint", args.checkpoint, "--name", args.name]
     if (args.dtype !== undefined) cliArgs.push("--dtype", args.dtype)
     if (args.lmstudio_dir !== undefined) cliArgs.push("--lmstudio-dir", args.lmstudio_dir)
+    return text(await runExperai(cliArgs))
+  },
+)
+
+server.registerTool(
+  "opencode",
+  {
+    title: "Package a checkpoint for OpenCode",
+    description:
+      "Export a trained checkpoint to a self-contained GGUF (with tokenizer metadata), write an Ollama Modelfile, and emit/merge the opencode.json provider config so the model is usable in OpenCode as <provider>/<name>.",
+    inputSchema: {
+      checkpoint: z.string().describe("Path to the checkpoint directory (contains .safetensors + model_config.json)."),
+      name: z.string().describe("Model name (GGUF file, Ollama model, and opencode model id)."),
+      output_dir: z.string().optional().describe("Where to write GGUF/Modelfile/snippet (default <checkpoint>/opencode)."),
+      tokenizer: z.string().optional().describe("Path to the tokenizer JSON file embedded into the GGUF."),
+      provider: z.string().optional().describe("OpenCode provider id (default experai)."),
+      base_url: z.string().optional().describe("OpenAI-compatible endpoint (default http://localhost:11434/v1)."),
+      config_path: z.string().optional().describe("Merge the provider/model into this opencode.json path."),
+      json: z.boolean().optional().describe("Emit machine-readable JSON on stdout."),
+    },
+  },
+  async (args) => {
+    const cliArgs = ["opencode", "--checkpoint", args.checkpoint, "--name", args.name]
+    if (args.output_dir !== undefined) cliArgs.push("--output-dir", args.output_dir)
+    if (args.tokenizer !== undefined) cliArgs.push("--tokenizer", args.tokenizer)
+    if (args.provider !== undefined) cliArgs.push("--provider", args.provider)
+    if (args.base_url !== undefined) cliArgs.push("--base-url", args.base_url)
+    if (args.config_path !== undefined) cliArgs.push("--config-path", args.config_path)
+    if (args.json) cliArgs.push("--json")
     return text(await runExperai(cliArgs))
   },
 )
