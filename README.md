@@ -32,9 +32,11 @@ cargo build --release --no-default-features
 
 ### Tokenizer
 
-The tokenizer file (`models/tokenizer.json`) is required for all commands. It must be a valid HuggingFace `tokenizers` format JSON file (not a custom vocab/merges file). Download the GPT-2 tokenizer:
+The tokenizer file (`models/tokenizer.json`) is required for all commands. It must be a valid HuggingFace `tokenizers` format JSON file (not a custom vocab/merges file). Fetch it (plus `config.json`) straight from the Hub:
 
 ```bash
+experai fetch --model gpt2 --what all    # writes models/tokenizer.json + models/config.json
+# or manually:
 curl -sL "https://huggingface.co/gpt2/resolve/main/tokenizer.json" -o models/tokenizer.json
 ```
 
@@ -87,6 +89,7 @@ The `models/` directory is gitignored, so each machine needs to fetch the tokeni
 | `generate` | Generate text from a trained model |
 | `package` | Export a checkpoint to GGUF for LM Studio |
 | `opencode` | Package a checkpoint as a local model usable in OpenCode |
+| `fetch` | Download tokenizer/config for a HuggingFace model id |
 | `at-protocol` | Load training data from a Bluesky user |
 | `jetstream-train` | Stream and train from the AT Protocol firehose |
 
@@ -279,8 +282,9 @@ the toolkit from an agent or the TUI:
 
 - **Plugin** — `.opencode/plugin/experai.ts` registers `experai_*` tools
   (`experai_support`, `experai_generate`, `experai_train`, `experai_preprocess`,
-  `experai_package`, `experai_opencode`, `experai_atprotocol`, `experai_jetstream`,
-  `experai_publish_weight`, `experai_commands`) that shell out to the compiled binary.
+  `experai_package`, `experai_opencode`, `experai_fetch`, `experai_atprotocol`,
+  `experai_jetstream`, `experai_publish_weight`, `experai_commands`) that shell out
+  to the compiled binary.
 - **Slash command** — `/experai <args>` runs the CLI and summarizes the result.
 - **MCP server** — `mcp/experai-server.mjs` exposes the same capabilities as
   standard MCP tools (usable by opencode and any other MCP client). It is wired
@@ -316,9 +320,9 @@ machine-readable.
 `experai opencode` turns a trained checkpoint into a model you can select in
 OpenCode. It:
 
-1. Exports the checkpoint to a **self-contained GGUF** (weights plus
-   `tokenizer.ggml.*` vocab/merges/special-token metadata and a chat template),
-   written to `<checkpoint>/opencode/<name>.gguf`.
+1. Exports the checkpoint to a **self-contained GGUF** in llama.cpp's `llama`
+   architecture (weights plus `tokenizer.ggml.*` vocab/merges/token-type
+   metadata and a chat template), written to `<checkpoint>/opencode/<name>.gguf`.
 2. Writes an **Ollama `Modelfile`** next to it, so
    `ollama create <name> -f Modelfile` serves the model on an
    OpenAI-compatible endpoint (`http://localhost:11434/v1`). OpenCode

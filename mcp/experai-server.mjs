@@ -201,6 +201,30 @@ server.registerTool(
 )
 
 server.registerTool(
+  "fetch",
+  {
+    title: "Fetch tokenizer/config from HuggingFace",
+    description:
+      "Download tokenizer.json and/or config.json for a HuggingFace model id (e.g. gpt2) so experai can train/package without manual downloads.",
+    inputSchema: {
+      model: z.string().describe("HuggingFace model id (e.g. gpt2, Qwen/Qwen2.5-0.5B)."),
+      revision: z.string().optional().describe("Hub revision (branch, tag, or commit; default main)."),
+      what: z.enum(["tokenizer", "config", "all"]).optional().describe("What to download (default tokenizer)."),
+      output_dir: z.string().optional().describe("Directory to write files into (default models)."),
+      json: z.boolean().optional().describe("Emit machine-readable JSON on stdout."),
+    },
+  },
+  async (args) => {
+    const cliArgs = ["fetch", "--model", args.model]
+    if (args.revision !== undefined) cliArgs.push("--revision", args.revision)
+    if (args.what !== undefined) cliArgs.push("--what", args.what)
+    if (args.output_dir !== undefined) cliArgs.push("--output-dir", args.output_dir)
+    if (args.json) cliArgs.push("--json")
+    return text(await runExperai(cliArgs))
+  },
+)
+
+server.registerTool(
   "opencode",
   {
     title: "Package a checkpoint for OpenCode",

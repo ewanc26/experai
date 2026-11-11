@@ -1,5 +1,6 @@
 /// CLI command handlers for all subcommands.
 pub mod at_protocol;
+pub mod fetch;
 pub mod generate;
 pub mod jetstream_train;
 pub mod opencode;

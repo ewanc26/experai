@@ -35,5 +35,6 @@ Examples:
 - `/experai train --model gpt2 --data notes.txt --output-dir output` (any text file, CSV, JSON, directory, or `-` for stdin)
 - `/experai preprocess --input raw.txt --output data/train.jsonl --tokenizer models/tokenizer.json`
 - `/experai opencode --checkpoint output --name my-model --config-path opencode.json`
+- `/experai fetch --model gpt2 --what all   # grab tokenizer.json + config.json from HuggingFace`
 
 For JSON output (useful for parsing), pass `--json` after `experai`.

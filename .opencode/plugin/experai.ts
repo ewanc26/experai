@@ -263,6 +263,41 @@ export default (async () => {
         },
        }),
 
+      experai_fetch: tool({
+        description:
+          "Fetch tokenizer.json/config.json for a HuggingFace model id (e.g. gpt2) so experai can train/package without manual downloads.",
+        args: {
+          model: tool.schema
+            .string()
+            .describe("HuggingFace model id (e.g. gpt2, Qwen/Qwen2.5-0.5B)."),
+          revision: tool.schema
+            .string()
+            .optional()
+            .describe("Hub revision (branch, tag, or commit; default main)."),
+          what: tool.schema
+            .string()
+            .optional()
+            .describe("What to download: tokenizer (default), config, or all."),
+          output_dir: tool.schema
+            .string()
+            .optional()
+            .describe("Directory to write files into (default models)."),
+          json: tool.schema
+            .boolean()
+            .optional()
+            .describe("Emit machine-readable JSON on stdout."),
+        },
+        async execute(args) {
+          const cliArgs = ["fetch", "--model", args.model]
+          if (args.revision !== undefined) cliArgs.push("--revision", args.revision)
+          if (args.what !== undefined) cliArgs.push("--what", args.what)
+          if (args.output_dir !== undefined)
+            cliArgs.push("--output-dir", args.output_dir)
+          if (args.json) cliArgs.push("--json")
+          return await runExperai(cliArgs)
+        },
+      }),
+
       experai_opencode: tool({
         description:
           "Package a trained checkpoint for use as a local model in OpenCode: exports a self-contained GGUF (with tokenizer metadata), writes an Ollama Modelfile, and emits/merges the opencode.json provider config.",

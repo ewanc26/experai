@@ -177,10 +177,13 @@ fn write_tokenizer_metadata(
                 .collect(),
         );
     }
+    // Key names verified against llama.cpp's gguf-py `Keys.Tokenizer`.
+    writer.add_metadata("tokenizer.ggml.model", "bpe");
+    writer.add_metadata("tokenizer.ggml.pre", "default");
     writer.add_metadata_u32("tokenizer.ggml.bos_token_id", meta.bos_token_id);
     writer.add_metadata_u32("tokenizer.ggml.eos_token_id", meta.eos_token_id);
-    writer.add_metadata_u32("tokenizer.ggml.pad_token_id", meta.pad_token_id);
-    writer.add_metadata_u32("tokenizer.ggml.unk_token_id", meta.unk_token_id);
+    writer.add_metadata_u32("tokenizer.ggml.padding_token_id", meta.pad_token_id);
+    writer.add_metadata_u32("tokenizer.ggml.unknown_token_id", meta.unk_token_id);
     writer.add_metadata_bool("tokenizer.ggml.add_bos_token", false);
     writer.add_metadata_bool("tokenizer.ggml.add_eos_token", false);
     writer.add_metadata("tokenizer.chat_template", &meta.chat_template);
@@ -191,6 +194,9 @@ fn write_tokenizer_metadata(
 const GGML_F32: u32 = 0;
 const GGML_F16: u32 = 1;
 const GGML_BF16: u32 = 30;
+
+/// RoPE base, matching [`crate::model`]'s `ROPE_THETA` (GPT-NeoX/Llama convention).
+const ROPE_THETA_F32: f32 = 10000.0;
 
 /// Convert a [`safetensors::Dtype`] to the corresponding GGML dtype constant.
 fn safetensors_dtype_to_ggml(dt: Dtype) -> Result<u32, ExperaiError> {
@@ -205,14 +211,15 @@ fn safetensors_dtype_to_ggml(dt: Dtype) -> Result<u32, ExperaiError> {
     }
 }
 
-/// Map a Candle/safetensors tensor name to its GGUF GPT-2 equivalent.
+/// Map a Candle/safetensors tensor name to its GGUF `llama`-arch equivalent
+/// (names verified against llama.cpp's gguf-py tensor name map).
 ///
-/// The GGUF format uses different naming conventions:
 /// - `embedding.weight` → `token_embd.weight`
 /// - `norm.weight` → `output_norm.weight`
 /// - `lm_head.weight` → `output.weight`
 /// - Layer tensors `layers.{i}.*` → `blk.{i}.*` with sub-component renaming
-///   (e.g. `self_attn.q_proj` → `attn_q`, `mlp.gate_proj` → `ffn_gate`).
+///   (e.g. `self_attn.q_proj` → `attn_q`, `input_layernorm` → `attn_norm`,
+///   `post_attention_layernorm` → `ffn_norm`, `mlp.gate_proj` → `ffn_gate`).
 fn map_tensor_name(candle_name: &str) -> Result<String, ExperaiError> {
     if candle_name == "embedding.weight" {
         return Ok("token_embd.weight".to_string());
@@ -262,13 +269,13 @@ fn map_tensor_name(candle_name: &str) -> Result<String, ExperaiError> {
                 let rest = s
                     .strip_prefix("input_layernorm.")
                     .ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
-                format!("ln_1.{}", rest)
+                format!("attn_norm.{}", rest)
             }
             s if s.starts_with("post_attention_layernorm.") => {
                 let rest = s
                     .strip_prefix("post_attention_layernorm.")
                     .ok_or_else(|| ExperaiError::Export("strip_prefix failed".to_string()))?;
-                format!("ln_2.{}", rest)
+                format!("ffn_norm.{}", rest)
             }
             s if s.starts_with("mlp.gate_proj.") => {
                 let rest = s
@@ -427,24 +434,37 @@ pub fn export_to_gguf_to(
     let mut writer = GGUFWriter::new(&gguf_path, 3)
         .map_err(|e| ExperaiError::Export(format!("Failed to create GGUF writer: {}", e)))?;
 
-    // Write architecture and hyperparameter metadata
-    writer.add_metadata("general.architecture", "gpt2");
+    // Write architecture and hyperparameter metadata.
+    //
+    // The model is RoPE + RMSNorm + SwiGLU with no biases and no learned
+    // positional embeddings, which is exactly llama.cpp's `llama` architecture
+    // (key/tensor names verified against llama.cpp's gguf-py constants). Using
+    // `gpt2` here would make Ollama/llama-server misinterpret the weights.
+    writer.add_metadata("general.architecture", "llama");
     writer.add_metadata("general.name", model_name);
+    // general.file_type: 0 = all F32, 1 = mostly F16 (llama.cpp convention).
+    writer.add_metadata_u32("general.file_type", 0);
 
-    // GPT-2 specific metadata
-    writer.add_metadata_u32("gpt2.block_count", model_config.num_layers as u32);
-    writer.add_metadata_u32("gpt2.attention.head_count", model_config.num_heads as u32);
-    writer.add_metadata_u32("gpt2.embedding_length", model_config.hidden_size as u32);
+    let head_dim = model_config.hidden_size / model_config.num_heads;
+    writer.add_metadata_u32("llama.block_count", model_config.num_layers as u32);
+    writer.add_metadata_u32("llama.attention.head_count", model_config.num_heads as u32);
     writer.add_metadata_u32(
-        "gpt2.feed_forward_length",
+        "llama.attention.head_count_kv",
+        model_config.num_heads as u32,
+    );
+    writer.add_metadata_u32("llama.embedding_length", model_config.hidden_size as u32);
+    writer.add_metadata_u32(
+        "llama.feed_forward_length",
         model_config.intermediate_size as u32,
     );
-    writer.add_metadata_u32("gpt2.context_length", model_config.max_seq_len as u32);
-    writer.add_metadata_u32("gpt2.vocab_size", model_config.vocab_size as u32);
+    writer.add_metadata_u32("llama.context_length", model_config.max_seq_len as u32);
+    writer.add_metadata_u32("llama.vocab_size", model_config.vocab_size as u32);
     writer.add_metadata_f32(
-        "gpt2.layer_norm_epsilon",
+        "llama.attention.layer_norm_rms_epsilon",
         model_config.layer_norm_eps as f32,
     );
+    writer.add_metadata_f32("llama.rope.freq_base", ROPE_THETA_F32);
+    writer.add_metadata_u32("llama.rope.dimension_count", head_dim as u32);
 
     // Embed tokenizer metadata (vocab, merges, special ids, chat template) so
     // the GGUF is directly consumable by Ollama / OpenCode local providers.
@@ -521,4 +541,96 @@ pub fn export_to_gguf_to(
     );
 
     Ok(gguf_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tensor_names_map_to_llama_arch() {
+        assert_eq!(
+            map_tensor_name("embedding.weight").unwrap(),
+            "token_embd.weight"
+        );
+        assert_eq!(
+            map_tensor_name("norm.weight").unwrap(),
+            "output_norm.weight"
+        );
+        assert_eq!(map_tensor_name("lm_head.weight").unwrap(), "output.weight");
+        assert_eq!(
+            map_tensor_name("layers.3.self_attn.q_proj.weight").unwrap(),
+            "blk.3.attn_q.weight"
+        );
+        assert_eq!(
+            map_tensor_name("layers.0.self_attn.o_proj.weight").unwrap(),
+            "blk.0.attn_output.weight"
+        );
+        assert_eq!(
+            map_tensor_name("layers.1.input_layernorm.weight").unwrap(),
+            "blk.1.attn_norm.weight"
+        );
+        assert_eq!(
+            map_tensor_name("layers.1.post_attention_layernorm.weight").unwrap(),
+            "blk.1.ffn_norm.weight"
+        );
+        assert_eq!(
+            map_tensor_name("layers.2.mlp.gate_proj.weight").unwrap(),
+            "blk.2.ffn_gate.weight"
+        );
+        assert_eq!(
+            map_tensor_name("layers.2.mlp.up_proj.weight").unwrap(),
+            "blk.2.ffn_up.weight"
+        );
+        assert_eq!(
+            map_tensor_name("layers.2.mlp.down_proj.weight").unwrap(),
+            "blk.2.ffn_down.weight"
+        );
+        assert!(map_tensor_name("bogus.weight").is_err());
+    }
+
+    #[test]
+    fn tokenizer_metadata_from_hf_json() {
+        let cfg = ModelConfig::default();
+        let tok_json: serde_json::Value = serde_json::json!({
+            "model": {
+                "type": "BPE",
+                "vocab": {"hello": 10, "Ġ": 11},
+                "merges": ["hello world", ["a", "b"]],
+            },
+            "added_tokens": [
+                {"id": 0, "content": "<pad>", "special": true},
+                {"id": 1, "content": "<s>", "special": true},
+                {"id": 2, "content": "</s>", "special": true},
+                {"id": 3, "content": "<unk>", "special": true},
+            ],
+        });
+        let meta = tokenizer_metadata_from_json(&tok_json, &cfg).unwrap();
+        assert_eq!(meta.tokens.len(), cfg.vocab_size);
+        assert_eq!(meta.tokens[10], "hello");
+        assert_eq!(meta.tokens[11], "Ġ");
+        assert_eq!(meta.token_types[0], TOKEN_TYPE_CONTROL);
+        assert_eq!(meta.token_types[3], TOKEN_TYPE_UNKNOWN);
+        // "Ġ" (U+0120 >= 256, single char) is a byte-fallback token.
+        assert_eq!(meta.token_types[11], TOKEN_TYPE_BYTE);
+        assert_eq!(
+            meta.merges,
+            vec!["hello world".to_string(), "a b".to_string()]
+        );
+        assert_eq!(meta.bos_token_id, 1);
+        assert_eq!(meta.eos_token_id, 2);
+        assert_eq!(meta.pad_token_id, 0);
+        assert_eq!(meta.unk_token_id, 3);
+    }
+
+    #[test]
+    fn tokenizer_metadata_falls_back_to_model_config_ids() {
+        let cfg = ModelConfig::default();
+        let tok_json: serde_json::Value =
+            serde_json::json!({"model": {"type": "BPE", "vocab": {}, "merges": []}});
+        let meta = tokenizer_metadata_from_json(&tok_json, &cfg).unwrap();
+        assert_eq!(meta.bos_token_id, cfg.bos_token_id as u32);
+        assert_eq!(meta.eos_token_id, cfg.eos_token_id as u32);
+        assert_eq!(meta.pad_token_id, cfg.pad_token_id as u32);
+    }
 }

@@ -227,6 +227,21 @@ enum Commands {
         #[arg(long, default_value = "f16")]
         dtype: String,
     },
+    /// Fetch tokenizer/config files for a HuggingFace model id.
+    Fetch {
+        /// HuggingFace model id (e.g. `gpt2`, `Qwen/Qwen2.5-0.5B`).
+        #[arg(short, long)]
+        model: String,
+        /// Git revision on the Hub (branch, tag, or commit).
+        #[arg(long, default_value = "main")]
+        revision: String,
+        /// What to download: `tokenizer` (default), `config`, or `all`.
+        #[arg(long, default_value = "tokenizer")]
+        what: String,
+        /// Directory to write the downloaded files into.
+        #[arg(short, long, default_value = "models")]
+        output_dir: String,
+    },
     /// Package a trained checkpoint for use as a local model in OpenCode.
     ///
     /// Exports the checkpoint to GGUF (with tokenizer metadata), writes an
@@ -456,6 +471,14 @@ fn main() -> Result<()> {
             dtype,
         } => {
             experai::commands::package::run(checkpoint, name, lmstudio_dir, dtype)?;
+        }
+        Commands::Fetch {
+            model,
+            revision,
+            what,
+            output_dir,
+        } => {
+            experai::commands::fetch::run(model, revision, what, output_dir, cli.json)?;
         }
         Commands::Opencode {
             checkpoint,
