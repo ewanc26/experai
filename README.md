@@ -342,7 +342,7 @@ OpenCode. It:
    OpenAI-compatible endpoint (`http://localhost:11434/v1`). OpenCode
    auto-discovers Ollama at `127.0.0.1:11434`.
 3. Emits the **`opencode.json` provider snippet** (and merges it into an
-   existing config when `--config-path` is given) using the OpenCode v2
+   existing config when `--config-path` is given) using the current OpenCode
    `providers` schema — an `@opencode/ai/providers/openai-compatible` package
    with `settings.baseURL` — so the model appears as `<provider>/<name>`:
 

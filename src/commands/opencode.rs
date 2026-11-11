@@ -42,9 +42,9 @@ pub fn sanitize_model_name(name: &str) -> String {
 
 /// Build the OpenCode `providers` + `model` config snippet for a local model.
 ///
-/// Uses the current (v2) `providers` schema: an OpenAI-compatible package with
-/// a `settings.baseURL` pointing at the local server, plus an explicit model
-/// entry so the model is selectable as `<provider>/<name>`.
+/// Uses the current (v2) `providers` schema: an OpenAI-compatible `package`
+/// with a `settings.baseURL` pointing at the local server, plus an explicit
+/// model entry so the model is selectable as `<provider>/<name>`.
 pub fn build_opencode_config(
     provider: &str,
     name: &str,

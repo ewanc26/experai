@@ -8,11 +8,13 @@ use tracing::{debug, info};
 use crate::errors::ExperaiError;
 use crate::model::ModelConfig;
 
-/// llama.cpp `token_type` values used in `tokenizer.ggml.token_type`.
-const TOKEN_TYPE_NORMAL: u32 = 0;
-const TOKEN_TYPE_UNKNOWN: u32 = 1;
-const TOKEN_TYPE_CONTROL: u32 = 2;
-const TOKEN_TYPE_BYTE: u32 = 5;
+/// llama.cpp `llama_token_type` values used in `tokenizer.ggml.token_type`
+/// (see llama.h: UNDEFINED=0, NORMAL=1, UNKNOWN=2, CONTROL=3, USER_DEFINED=4,
+/// UNUSED=5, BYTE=6). gguf-py's `gguf.TokenType` uses the same numbering.
+const TOKEN_TYPE_NORMAL: u32 = 1;
+const TOKEN_TYPE_UNKNOWN: u32 = 2;
+const TOKEN_TYPE_CONTROL: u32 = 3;
+const TOKEN_TYPE_BYTE: u32 = 6;
 
 /// Tokenizer metadata embedded into a GGUF file so llama.cpp-based runtimes
 /// (Ollama, LM Studio, OpenCode via a local server) can tokenize prompts.
@@ -32,8 +34,11 @@ pub struct TokenizerMetadata {
 }
 
 /// Default chat template written into the GGUF. Uses the bos/eos tokens so a
-/// base model can be driven as a chat model by OpenCode/Ollama.
-const DEFAULT_CHAT_TEMPLATE: &str = "{%- if messages[0]['role'] == 'system' -%}\n{{- bos_token + messages[0]['content'] + eos_token }}\n{%- set messages = messages[1:] -%}\n{%- endif -%}\n{%- for message in messages -%}\n{{- bos_token + message['role'] | capitalize + ': ' + message['content'] + eos_token }}\n{%- endfor -%}\n{%- if add_generation_prompt -%}\n{{- bos_token + 'Assistant: ' }}\n{%- endif -%}";
+/// base model can be driven as a chat model by OpenCode/Ollama. The `tools`
+/// block makes Ollama advertise the `tools` capability (it scans the template
+/// for tool support), so OpenCode's agent requests are accepted instead of
+/// rejected with "does not support tools".
+const DEFAULT_CHAT_TEMPLATE: &str = "{%- if tools -%}\n{{- bos_token + (tools | tojson) + eos_token }}\n{%- endif -%}\n{%- if messages[0]['role'] == 'system' -%}\n{{- bos_token + messages[0]['content'] + eos_token }}\n{%- set messages = messages[1:] -%}\n{%- endif -%}\n{%- for message in messages -%}\n{{- bos_token + message['role'] | capitalize + ': ' + message['content'] + eos_token }}\n{%- endfor -%}\n{%- if add_generation_prompt -%}\n{{- bos_token + 'Assistant: ' }}\n{%- endif -%}";
 
 /// Token contents recognised as bos/eos/pad/unk special tokens.
 const BOS_NAMES: [&str; 2] = ["<s>", "<|startoftext|>"];
@@ -41,11 +46,17 @@ const EOS_NAMES: [&str; 2] = ["</s>", "<|endoftext|>"];
 const PAD_NAMES: [&str; 2] = ["<pad>", "<|pad|>"];
 const UNK_NAMES: [&str; 3] = ["<unk>", "[UNK]", "<|unk|>"];
 
-/// In GPT-2's byte-level BPE, byte-fallback tokens are single chars with a
-/// code point >= 256 (e.g. `Ġ` for byte 32).
+/// Byte-fallback tokens are exactly the `<0xHH>` forms — this matches gguf-py's
+/// `get_token_type`. GPT-2-style byte-level BPE fallback chars (single chars
+/// in U+0100..U+01FF, e.g. `Ġ`) must stay NORMAL: marking them BYTE crashes
+/// llama.cpp's vocab loader (`basic_string` length_error on current Ollama).
 fn is_byte_fallback_token(token: &str) -> bool {
-    let mut chars = token.chars();
-    matches!(chars.next(), Some(c) if (c as u32) >= 256) && chars.next().is_none()
+    let b = token.as_bytes();
+    b.len() == 6
+        && &b[0..3] == b"<0x"
+        && b[5] == b'>'
+        && b[3].is_ascii_hexdigit()
+        && b[4].is_ascii_hexdigit()
 }
 
 /// Build [`TokenizerMetadata`] from a parsed HuggingFace `tokenizers` JSON
@@ -162,10 +173,12 @@ fn write_tokenizer_metadata(
             .collect(),
     );
     writer.add_metadata_array(
+        // llama.cpp requires the token_type array elements to be INT32
+        // (`GGUF_TYPE_INT32`), not UINT32.
         "tokenizer.ggml.token_type",
         meta.token_types
             .iter()
-            .map(|t| MetadataValue::Uint32(*t))
+            .map(|t| MetadataValue::Int32(*t as i32))
             .collect(),
     );
     if !meta.merges.is_empty() {
@@ -178,7 +191,11 @@ fn write_tokenizer_metadata(
         );
     }
     // Key names verified against llama.cpp's gguf-py `Keys.Tokenizer`.
-    writer.add_metadata("tokenizer.ggml.model", "bpe");
+    // `tokenizer.ggml.model` must be a name current llama.cpp recognises
+    // (llama/bert/gpt2/t5/...); BPE-with-merges vocabularies are labelled
+    // "gpt2" by gguf-py, and recent llama.cpp rejects the literal "bpe"
+    // with `unknown tokenizer: 'bpe'`.
+    writer.add_metadata("tokenizer.ggml.model", "gpt2");
     writer.add_metadata("tokenizer.ggml.pre", "default");
     writer.add_metadata_u32("tokenizer.ggml.bos_token_id", meta.bos_token_id);
     writer.add_metadata_u32("tokenizer.ggml.eos_token_id", meta.eos_token_id);
@@ -506,7 +523,16 @@ pub fn export_to_gguf_to(
             Dtype::BF16 => (GGML_F32, bf16_to_f32_bytes(tensor.data())),
             dt => (safetensors_dtype_to_ggml(dt)?, tensor.data().to_vec()),
         };
-        let shape: Vec<u64> = tensor.shape().iter().map(|&s| s as u64).collect();
+        let mut shape: Vec<u64> = tensor.shape().iter().map(|&s| s as u64).collect();
+        // GGUF/ggml stores 2D weights with ne[0] as the contiguous dimension,
+        // i.e. transposed relative to PyTorch's row-major [out, in] / [vocab,
+        // hidden]. Flipping the two dims (data untouched) is exactly the
+        // row-major -> ggml transpose: ggml (i, j) lives at j*ne[0] + i, which
+        // matches PyTorch (j, i) at j*C + i when ne = [C, R]. llama.cpp's
+        // check_tensor_dims rejects un-flipped shapes.
+        if shape.len() == 2 {
+            shape.swap(0, 1);
+        }
 
         debug!(
             "  Registering: {} shape={:?} dtype={}",
@@ -614,7 +640,7 @@ mod tests {
         let tok_json: serde_json::Value = serde_json::json!({
             "model": {
                 "type": "BPE",
-                "vocab": {"hello": 10, "Ġ": 11},
+                "vocab": {"hello": 10, "Ġ": 11, "<0x41>": 12},
                 "merges": ["hello world", ["a", "b"]],
             },
             "added_tokens": [
@@ -630,8 +656,10 @@ mod tests {
         assert_eq!(meta.tokens[11], "Ġ");
         assert_eq!(meta.token_types[0], TOKEN_TYPE_CONTROL);
         assert_eq!(meta.token_types[3], TOKEN_TYPE_UNKNOWN);
-        // "Ġ" (U+0120 >= 256, single char) is a byte-fallback token.
-        assert_eq!(meta.token_types[11], TOKEN_TYPE_BYTE);
+        // "<0x41>" is a byte-fallback token; "Ġ" (GPT-2 byte-level BPE char)
+        // must stay NORMAL or llama.cpp's vocab loader crashes.
+        assert_eq!(meta.token_types[11], TOKEN_TYPE_NORMAL);
+        assert_eq!(meta.token_types[12], TOKEN_TYPE_BYTE);
         assert_eq!(
             meta.merges,
             vec!["hello world".to_string(), "a b".to_string()]
