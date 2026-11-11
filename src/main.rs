@@ -82,6 +82,9 @@ enum Commands {
         /// Freeze the bottom N transformer layers (0 = train all).
         #[arg(long, default_value = "0")]
         freeze_layers: usize,
+        /// Path to a model_config.json overriding the architecture (default: built-in, or `<model>/model_config.json` when `--model` is a checkpoint dir).
+        #[arg(long)]
+        model_config: Option<String>,
     },
     /// Preprocess raw text data into tokenized training format.
     Preprocess {
@@ -136,8 +139,12 @@ enum Commands {
         /// Path to the tokenizer JSON file.
         #[arg(long, default_value = "models/tokenizer.json")]
         tokenizer: String,
+        /// Path to a model_config.json overriding the architecture (default: `<model>/model_config.json` if present).
+        #[arg(long)]
+        model_config: Option<String>,
     },
     /// Fetch posts from an AT Protocol PDS and train a model on them.
+    #[command(disable_help_flag = true)] // `-h` is the handle short flag
     AtProtocol {
         /// Personal Data Server URL.
         #[arg(short = 'u', long, default_value = "https://bsky.social")]
@@ -169,6 +176,9 @@ enum Commands {
         /// Path to the tokenizer JSON file.
         #[arg(long, default_value = "models/tokenizer.json")]
         tokenizer: String,
+        /// Path to a model_config.json overriding the architecture.
+        #[arg(long)]
+        model_config: Option<String>,
     },
     /// Stream posts from the Jetstream relay and train on them.
     JetstreamTrain {
@@ -211,6 +221,9 @@ enum Commands {
         /// Automatically tune batch size based on available VRAM.
         #[arg(long)]
         auto_tune: bool,
+        /// Path to a model_config.json overriding the architecture.
+        #[arg(long)]
+        model_config: Option<String>,
     },
     /// Export a training checkpoint to GGUF format for use with LM Studio.
     Package {
@@ -271,6 +284,7 @@ enum Commands {
         config_path: Option<String>,
     },
     /// Publish trained model weights to an AT Protocol repo.
+    #[command(disable_help_flag = true)] // `-h` is the handle short flag
     PublishWeight {
         /// Path to the checkpoint directory (must contain a .safetensors file and model_config.json).
         #[arg(short = 'c', long)]
@@ -344,6 +358,7 @@ fn main() -> Result<()> {
             restore_best_weights,
             log_metrics_csv,
             freeze_layers,
+            model_config,
         } => {
             experai::commands::train::run(
                 model,
@@ -363,6 +378,7 @@ fn main() -> Result<()> {
                 freeze_layers,
                 data_format,
                 text_column,
+                model_config,
             )?;
         }
         Commands::Preprocess {
@@ -396,6 +412,7 @@ fn main() -> Result<()> {
             top_k,
             top_p,
             tokenizer,
+            model_config,
         } => {
             experai::commands::generate::run(
                 model,
@@ -405,6 +422,7 @@ fn main() -> Result<()> {
                 top_k,
                 top_p,
                 tokenizer,
+                model_config,
                 cli.json,
             )?;
         }
@@ -419,6 +437,7 @@ fn main() -> Result<()> {
             batch_size,
             grad_accum,
             tokenizer,
+            model_config,
         } => {
             experai::commands::at_protocol::run(
                 pds_url,
@@ -431,6 +450,7 @@ fn main() -> Result<()> {
                 batch_size,
                 grad_accum,
                 tokenizer,
+                model_config,
             )?;
         }
         Commands::JetstreamTrain {
@@ -447,6 +467,7 @@ fn main() -> Result<()> {
             grad_accum,
             tokenizer,
             auto_tune,
+            model_config,
         } => {
             experai::commands::jetstream_train::run(
                 jetstream_host,
@@ -462,6 +483,7 @@ fn main() -> Result<()> {
                 grad_accum,
                 tokenizer,
                 auto_tune,
+                model_config,
             )?;
         }
         Commands::Package {

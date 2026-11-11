@@ -162,6 +162,10 @@ export default (async () => {
             .boolean()
             .optional()
             .describe("Resume from the latest checkpoint in output_dir."),
+          model_config: tool.schema
+            .string()
+            .optional()
+            .describe("Path to a model_config.json overriding the architecture (for tiny test models)."),
         },
         async execute(args) {
           const cliArgs = [
@@ -184,6 +188,8 @@ export default (async () => {
             cliArgs.push("--data-format", args.data_format)
           if (args.text_column !== undefined)
             cliArgs.push("--text-column", args.text_column)
+          if (args.model_config !== undefined)
+            cliArgs.push("--model-config", args.model_config)
           return await runExperai(cliArgs)
         },
       }),

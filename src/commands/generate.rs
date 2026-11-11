@@ -19,6 +19,7 @@ pub fn run(
     top_k: usize,
     top_p: f64,
     tokenizer: String,
+    model_config: Option<String>,
     json: bool,
 ) -> Result<()> {
     info!("Starting generation: model={}, prompt={}", model, prompt);
@@ -27,25 +28,50 @@ pub fn run(
     // Prefer the model_config.json saved alongside the checkpoint so trained
     // models with a non-default architecture generate correctly.
     let model_config = {
-        let cfg_path = format!("{}/model_config.json", model);
-        if std::path::Path::new(&cfg_path).exists() {
-            let raw = std::fs::read_to_string(&cfg_path)?;
-            serde_json::from_str(&raw)
-                .map_err(|e| anyhow::anyhow!("Failed to parse {cfg_path}: {e}"))?
+        if let Some(p) = &model_config {
+            let raw = std::fs::read_to_string(p)?;
+            serde_json::from_str(&raw).map_err(|e| anyhow::anyhow!("Failed to parse {p}: {e}"))?
         } else {
-            ModelConfig::default()
+            let cfg_path = format!("{}/model_config.json", model);
+            if std::path::Path::new(&cfg_path).exists() {
+                let raw = std::fs::read_to_string(&cfg_path)?;
+                serde_json::from_str(&raw)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse {cfg_path}: {e}"))?
+            } else {
+                ModelConfig::default()
+            }
         }
     };
     let device = utils::device_from_env().to_candle()?;
+    let weights_path = format!("{}/best.safetensors", model);
+
+    // Build the varmap in the checkpoint's dtype (training may have saved
+    // bf16/fp16); fall back to F32 when no weights exist yet.
+    let ckpt_dtype = if std::path::Path::new(&weights_path).exists() {
+        let bytes = std::fs::read(&weights_path)?;
+        let st = safetensors::SafeTensors::deserialize(&bytes)
+            .map_err(|e| anyhow::anyhow!("Failed to read {weights_path}: {e}"))?;
+        st.names()
+            .first()
+            .and_then(|n| st.tensor(n).ok())
+            .map(|t| match t.dtype() {
+                safetensors::Dtype::BF16 => candle_core::DType::BF16,
+                safetensors::Dtype::F16 => candle_core::DType::F16,
+                _ => candle_core::DType::F32,
+            })
+            .unwrap_or(candle_core::DType::F32)
+    } else {
+        candle_core::DType::F32
+    };
+
     let mut var_map = candle_nn::VarMap::new();
-    let vb = candle_nn::VarBuilder::from_varmap(&var_map, candle_core::DType::F32, &device);
+    let vb = candle_nn::VarBuilder::from_varmap(&var_map, ckpt_dtype, &device);
 
     let model_arch = crate::model::build_model(&model_config, vb)?;
 
-    let weights_path = format!("{}/best.safetensors", model);
     if std::path::Path::new(&weights_path).exists() {
         var_map.load(&weights_path)?;
-        info!("Loaded weights from {}", weights_path);
+        info!("Loaded weights from {} ({:?})", weights_path, ckpt_dtype);
     } else {
         warn!(
             "No weights found at {}, using random initialisation",
@@ -69,7 +95,10 @@ pub fn run(
 
         let logits = model_arch.forward(&input_tensor)?;
         let seq_len = logits.dim(1)?;
-        let next_logits = logits.i((0, seq_len - 1))?;
+        // Sample in F32 regardless of the checkpoint's dtype.
+        let next_logits = logits
+            .i((0, seq_len - 1))?
+            .to_dtype(candle_core::DType::F32)?;
 
         let next_logits = (next_logits / temperature)?;
 

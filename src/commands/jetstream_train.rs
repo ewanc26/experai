@@ -1,6 +1,5 @@
 use crate::data::load_tokenizer;
 use crate::jetstream::JetstreamConfig;
-use crate::model::ModelConfig;
 use crate::training::{Trainer, TrainingConfig};
 use crate::utils;
 use anyhow::Result;
@@ -22,6 +21,7 @@ pub fn run(
     grad_accum: usize,
     tokenizer: String,
     auto_tune: bool,
+    model_config: Option<String>,
 ) -> Result<()> {
     info!(
         "Starting Jetstream training: host={}, collections={:?}, max_samples={}",
@@ -110,7 +110,7 @@ pub fn run(
     std::fs::write(&config_path, serde_json::to_string_pretty(&final_config)?)?;
     info!("Saved training config to {}", config_path);
 
-    let model_config = ModelConfig::default();
+    let model_config = super::resolve_model_config(&model_name, model_config.as_deref())?;
     let mut trainer = Trainer::new(final_config, model_config)?;
     info!("Trainer initialised on {:?}", trainer.device);
 

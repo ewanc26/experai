@@ -1,6 +1,5 @@
 use crate::at_protocol::ATProtocolConfig;
 use crate::data::{load_tokenizer, Dataset};
-use crate::model::ModelConfig;
 use crate::training::{Trainer, TrainingConfig};
 use crate::utils;
 use anyhow::Result;
@@ -19,6 +18,7 @@ pub fn run(
     batch_size: usize,
     grad_accum: usize,
     tokenizer: String,
+    model_config: Option<String>,
 ) -> Result<()> {
     info!(
         "Starting AT Protocol dataset loading from PDS: {} handle: {} max_samples: {}",
@@ -89,7 +89,7 @@ pub fn run(
     final_at_config.precision = tuned.precision;
     final_at_config.max_seq_len = tuned.max_seq_len;
 
-    let model_config = ModelConfig::default();
+    let model_config = super::resolve_model_config(&model_name, model_config.as_deref())?;
     let mut trainer = Trainer::new(final_at_config, model_config)?;
     info!("Trainer initialised on {:?}", trainer.device);
 

@@ -140,6 +140,7 @@ server.registerTool(
       batch_size: z.number().int().positive().optional().describe("Micro-batch size per GPU (default 4)."),
       grad_accum: z.number().int().positive().optional().describe("Gradient accumulation steps (default 8)."),
       resume: z.boolean().optional().describe("Resume from the latest checkpoint in output_dir."),
+      model_config: z.string().optional().describe("Path to a model_config.json overriding the architecture (for tiny test models)."),
     },
   },
   async (args) => {
@@ -151,6 +152,7 @@ server.registerTool(
     if (args.resume) cliArgs.push("--resume")
     if (args.data_format !== undefined) cliArgs.push("--data-format", args.data_format)
     if (args.text_column !== undefined) cliArgs.push("--text-column", args.text_column)
+    if (args.model_config !== undefined) cliArgs.push("--model-config", args.model_config)
     return text(await runExperai(cliArgs))
   },
 )

@@ -389,7 +389,9 @@ impl MultiHeadAttention {
 
         let k_t = k.transpose(2, 3)?;
 
-        let mask = causal_mask(seq_len, x.device())?;
+        // The mask is built in F32; cast to the model dtype so bf16/fp16
+        // training doesn't hit a dtype-mismatch in the broadcast_add.
+        let mask = causal_mask(seq_len, x.device())?.to_dtype(x.dtype())?;
         let scores = (q
             .contiguous()?
             .matmul(&k_t.contiguous()?)?
@@ -525,6 +527,11 @@ impl Module for TransformerModel {
         let (_batch, seq_len) = x.dims2()?;
         let head_dim = self.config.hidden_size / self.config.num_heads;
         let (rope_cos, rope_sin) = rope_cos_sin(seq_len, head_dim, x.device())?;
+        // The RoPE tables are computed in F32; cast to the model's dtype so
+        // bf16/fp16 training doesn't hit a dtype-mismatch in `apply_rope`.
+        let embedding_dtype = self.embedding.embeddings().dtype();
+        let rope_cos = rope_cos.to_dtype(embedding_dtype)?;
+        let rope_sin = rope_sin.to_dtype(embedding_dtype)?;
 
         let mut h = self.embedding.forward(x)?;
         h = self.dropout.forward(&h, false)?;

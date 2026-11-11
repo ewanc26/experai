@@ -1,5 +1,4 @@
 use crate::data::{load_tokenizer, validate_dataset, DataFormat, LoadOptions};
-use crate::model::ModelConfig;
 use crate::training::{Trainer, TrainingConfig};
 use crate::utils;
 use anyhow::Result;
@@ -25,6 +24,7 @@ pub fn run(
     freeze_layers: usize,
     data_format: String,
     text_column: Option<String>,
+    model_config: Option<String>,
 ) -> Result<()> {
     info!(
         "Starting training: model={}, data={}, lr={}, epochs={}",
@@ -91,7 +91,14 @@ pub fn run(
 
     validate_dataset(&dataset)?;
 
-    let model_config = ModelConfig::default();
+    let model_config = super::resolve_model_config(&model, model_config.as_deref())?;
+    info!(
+        "Model config: vocab={}, hidden={}, layers={}, heads={}",
+        model_config.vocab_size,
+        model_config.hidden_size,
+        model_config.num_layers,
+        model_config.num_heads
+    );
     let mut trainer = Trainer::new(final_config.clone(), model_config)?;
     info!("Trainer initialised on {:?}", trainer.device);
 

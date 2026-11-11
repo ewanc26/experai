@@ -191,6 +191,49 @@ fn test_model_forward_pass() {
 }
 
 #[test]
+fn test_model_forward_pass_bf16() {
+    // bf16/fp16 training must not hit dtype mismatches in RoPE or the causal
+    // mask (regression: those tables were built in F32).
+    let config = ModelConfig {
+        vocab_size: 100,
+        hidden_size: 64,
+        num_layers: 2,
+        num_heads: 4,
+        intermediate_size: 128,
+        max_seq_len: 64,
+        hidden_act: "gelu".to_string(),
+        initializer_range: 0.02,
+        layer_norm_eps: 1e-5,
+        pad_token_id: 0,
+        bos_token_id: 1,
+        eos_token_id: 2,
+    };
+
+    let device = Device::Cpu;
+    let varmap = VarMap::new();
+    let vb = VarBuilder::from_varmap(&varmap, DType::BF16, &device);
+    let model = build_model(&config, vb).expect("failed to build bf16 model");
+
+    let input_ids = Tensor::arange(0u32, 10u32, &device)
+        .expect("arange failed")
+        .unsqueeze(0)
+        .expect("unsqueeze failed");
+    let output = model.forward(&input_ids).expect("bf16 forward failed");
+    assert_eq!(output.dims(), &[1, 10, 100]);
+    assert_eq!(output.dtype(), DType::BF16);
+
+    // Backward must flow too (loss on logits cast to F32, as the trainer does).
+    let logits = output.to_dtype(DType::F32).expect("cast failed");
+    let loss = logits.mean_all().expect("mean failed");
+    let grads = loss.backward().expect("bf16 backward failed");
+    let has_grads = varmap
+        .all_vars()
+        .iter()
+        .any(|v| grads.get(v.as_tensor()).is_some());
+    assert!(has_grads, "expected gradients");
+}
+
+#[test]
 fn test_causal_mask() {
     let device = Device::Cpu;
     let seq_len = 5;

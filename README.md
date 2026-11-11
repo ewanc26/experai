@@ -138,6 +138,7 @@ Options:
   -d, --data <DATA>             Training data: JSONL/JSON/CSV/text file, directory, or `-` for stdin
       --data-format <FORMAT>    Force format: auto (default), jsonl, json, csv, text, dir
       --text-column <COLUMN>    CSV column holding the training text
+      --model-config <PATH>     model_config.json overriding the architecture (tiny models for tests)
   -o, --output-dir <OUTPUT_DIR> Output directory
   -e, --epochs <EPOCHS>         Number of epochs [default: 3]
   -b, --batch-size <BATCH_SIZE> Batch size [default: 4]
