@@ -578,9 +578,11 @@ fn print_support(json: bool) -> Result<()> {
     } else {
         let ko_fi = links["ko_fi"].as_str().unwrap_or_default();
         let sponsors = links["github_sponsors"].as_str().unwrap_or_default();
+        let liberapay = links["liberapay"].as_str().unwrap_or_default();
         println!("Support Experai development:");
         println!("  Ko-fi: {ko_fi}");
         println!("  GitHub Sponsors: {sponsors}");
+        println!("  Liberapay: {liberapay}");
     }
     Ok(())
 }
@@ -590,6 +592,7 @@ fn support_links() -> serde_json::Value {
     serde_json::json!({
         "ko_fi": "https://ko-fi.com/ewancroft",
         "github_sponsors": "https://github.com/sponsors/ewanc26",
+        "liberapay": "https://liberapay.com/ewanc26/",
     })
 }
 
