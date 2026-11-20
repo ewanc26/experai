@@ -33,4 +33,4 @@ The tokenizer (`models/tokenizer.json`) is required for every command and must b
 
 ## Licence
 
-AGPL-3.0 (see [LICENSE](LICENSE)). Contributions are accepted under the same terms. Contributions are accepted under the same terms.
+AGPL-3.0 (see [LICENSE](LICENSE)). Contributions are accepted under the same terms.
