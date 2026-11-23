@@ -1,6 +1,8 @@
 [package]
 name = "experai"
+authors = ["Ewan Croft (ewanc26)"]
 version = "0.3.0"
+license = "AGPL-3.0-or-later"
 edition = "2021"
 
 [features]

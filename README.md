@@ -436,3 +436,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and the checks required 
 ## Licence
 
 This project is licensed under the GNU Affero General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+
+Copyright (C) 2026 Ewan Croft (ewanc26).
